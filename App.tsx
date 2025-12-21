@@ -11,7 +11,7 @@ import { HelpModal } from './components/HelpModal';
 import { ConfirmDisconnectModal } from './components/ConfirmDisconnectModal';
 import { LoginPage } from './components/LoginPage';
 import { SettingsModal } from './components/SettingsModal';
-import { createDefaultAdmin, canEdit } from './authService';
+import { createDefaultAdmin, canEdit, canManage, canExport } from './authService';
 import { calculateDuration, exportToExcel } from './utils';
 import {
     openExcelFile,
@@ -621,8 +621,10 @@ const App: React.FC = () => {
         );
     }
 
-    // Verifica se usuário pode editar
+    // Verifica permissões do usuário
     const userCanEdit = canEdit(currentUser);
+    const userCanManage = canManage(currentUser);
+    const userCanExport = canExport(currentUser);
 
     return (
         <div className="h-screen flex flex-col font-sans text-slate-800 bg-slate-50">
@@ -800,10 +802,12 @@ const App: React.FC = () => {
 
                             <div className="h-8 w-px bg-slate-200 mx-1"></div>
 
-                            <button onClick={handleExport} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Baixar Excel">
-                                <Download size={18} />
-                            </button>
-                            {userCanEdit && (
+                            {userCanExport && (
+                                <button onClick={handleExport} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Baixar Excel">
+                                    <Download size={18} />
+                                </button>
+                            )}
+                            {userCanManage && (
                                 <>
                                     <button onClick={() => setIsTechModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Gerenciar Equipe">
                                         <Users size={18} />
@@ -818,9 +822,11 @@ const App: React.FC = () => {
                                 <HelpCircle size={18} />
                             </button>
 
-                            <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Configurações">
-                                <Settings size={18} />
-                            </button>
+                            {userCanManage && (
+                                <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Configurações">
+                                    <Settings size={18} />
+                                </button>
+                            )}
 
                             <div className="h-8 w-px bg-slate-200 mx-1"></div>
 

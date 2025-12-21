@@ -47,7 +47,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const [newUsername, setNewUsername] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [newFullName, setNewFullName] = useState('');
-    const [newRole, setNewRole] = useState<'admin' | 'user'>('user');
+    const [newRole, setNewRole] = useState<'admin' | 'operador' | 'user'>('user');
     const [showNewPassword, setShowNewPassword] = useState(false);
     const [addError, setAddError] = useState('');
     const [isAddingUser, setIsAddingUser] = useState(false);
@@ -138,8 +138,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <button
                         onClick={() => setActiveTab('excel')}
                         className={`flex-1 px-4 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${activeTab === 'excel'
-                                ? 'bg-white border-b-2 border-abb-red text-abb-red'
-                                : 'text-slate-500 hover:text-slate-700'
+                            ? 'bg-white border-b-2 border-abb-red text-abb-red'
+                            : 'text-slate-500 hover:text-slate-700'
                             }`}
                     >
                         <FileSpreadsheet size={16} />
@@ -149,8 +149,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                         <button
                             onClick={() => setActiveTab('users')}
                             className={`flex-1 px-4 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${activeTab === 'users'
-                                    ? 'bg-white border-b-2 border-abb-red text-abb-red'
-                                    : 'text-slate-500 hover:text-slate-700'
+                                ? 'bg-white border-b-2 border-abb-red text-abb-red'
+                                : 'text-slate-500 hover:text-slate-700'
                                 }`}
                         >
                             <Users size={16} />
@@ -268,10 +268,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                         </div>
                                         <select
                                             value={newRole}
-                                            onChange={(e) => setNewRole(e.target.value as 'admin' | 'user')}
+                                            onChange={(e) => setNewRole(e.target.value as 'admin' | 'operador' | 'user')}
                                             className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red bg-white"
                                         >
                                             <option value="user">Visualização</option>
+                                            <option value="operador">Operador</option>
                                             <option value="admin">Administrador</option>
                                         </select>
                                     </div>
@@ -304,19 +305,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                         <div
                                             key={user.id}
                                             className={`flex items-center justify-between p-3 rounded-lg border ${user.id === currentUser?.id
-                                                    ? 'bg-abb-red/5 border-abb-red/20'
-                                                    : 'bg-slate-50 border-slate-200'
+                                                ? 'bg-abb-red/5 border-abb-red/20'
+                                                : 'bg-slate-50 border-slate-200'
                                                 }`}
                                         >
                                             <div className="flex items-center gap-3">
-                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${user.role === 'admin' ? 'bg-amber-100 text-amber-600' : 'bg-slate-200 text-slate-500'
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${user.role === 'admin' ? 'bg-amber-100 text-amber-600' :
+                                                        user.role === 'operador' ? 'bg-blue-100 text-blue-600' :
+                                                            'bg-slate-200 text-slate-500'
                                                     }`}>
                                                     {user.role === 'admin' ? <Shield size={14} /> : <UserIcon size={14} />}
                                                 </div>
                                                 <div>
                                                     <p className="font-medium text-slate-800">{user.fullName}</p>
                                                     <p className="text-xs text-slate-500">
-                                                        @{user.username} · {user.role === 'admin' ? 'Administrador' : 'Visualização'}
+                                                        @{user.username} · {
+                                                            user.role === 'admin' ? 'Administrador' :
+                                                                user.role === 'operador' ? 'Operador' :
+                                                                    'Visualização'
+                                                        }
                                                     </p>
                                                 </div>
                                             </div>

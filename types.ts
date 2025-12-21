@@ -61,7 +61,7 @@ export interface Service {
 export type ViewMode = 'grid' | 'timeline';
 
 // Tipos de papel do usuário
-export type UserRole = 'admin' | 'user';
+export type UserRole = 'admin' | 'operador' | 'user';
 
 // Usuário do sistema
 export interface User {

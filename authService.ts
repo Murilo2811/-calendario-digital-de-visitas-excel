@@ -61,14 +61,35 @@ export const isAdmin = (user: User | null): boolean => {
 };
 
 /**
- * Verifica se usuário pode editar (apenas admin)
+ * Verifica se usuário é operador
+ */
+export const isOperador = (user: User | null): boolean => {
+    return user?.role === 'operador';
+};
+
+/**
+ * Verifica se usuário pode editar atividades (admin ou operador)
  */
 export const canEdit = (user: User | null): boolean => {
+    return user?.role === 'admin' || user?.role === 'operador';
+};
+
+/**
+ * Verifica se usuário pode gerenciar cadastros (apenas admin)
+ */
+export const canManage = (user: User | null): boolean => {
     return user?.role === 'admin';
 };
 
 /**
- * Verifica se usuário pode visualizar (admin ou user)
+ * Verifica se usuário pode exportar Excel (apenas admin)
+ */
+export const canExport = (user: User | null): boolean => {
+    return user?.role === 'admin';
+};
+
+/**
+ * Verifica se usuário pode visualizar (qualquer logado)
  */
 export const canView = (user: User | null): boolean => {
     return user !== null;
