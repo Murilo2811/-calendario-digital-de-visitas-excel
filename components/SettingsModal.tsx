@@ -15,7 +15,10 @@ import {
     ToggleRight,
     Shield,
     User as UserIcon,
-    AlertCircle
+    AlertCircle,
+    Edit3,
+    Check,
+    XCircle
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -29,6 +32,7 @@ interface SettingsModalProps {
     users: User[];
     onAddUser: (user: User) => void;
     onDeleteUser: (id: string) => void;
+    onUpdateUser: (id: string, updates: Partial<User>) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -42,6 +46,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     users,
     onAddUser,
     onDeleteUser,
+    onUpdateUser,
 }) => {
     const [activeTab, setActiveTab] = useState<'excel' | 'users'>('excel');
     const [newUsername, setNewUsername] = useState('');
@@ -51,6 +56,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const [showNewPassword, setShowNewPassword] = useState(false);
     const [addError, setAddError] = useState('');
     const [isAddingUser, setIsAddingUser] = useState(false);
+    const [editingUserId, setEditingUserId] = useState<string | null>(null);
+    const [editingRole, setEditingRole] = useState<'admin' | 'operador' | 'user'>('user');
 
     if (!isOpen) return null;
 
@@ -108,6 +115,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         if (confirm('Tem certeza que deseja remover este usuário?')) {
             onDeleteUser(id);
         }
+    };
+
+    const handleStartEdit = (user: User) => {
+        setEditingUserId(user.id);
+        setEditingRole(user.role);
+    };
+
+    const handleSaveEdit = (userId: string) => {
+        onUpdateUser(userId, { role: editingRole });
+        setEditingUserId(null);
+    };
+
+    const handleCancelEdit = () => {
+        setEditingUserId(null);
     };
 
     return (
@@ -311,8 +332,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                         >
                                             <div className="flex items-center gap-3">
                                                 <div className={`w-8 h-8 rounded-full flex items-center justify-center ${user.role === 'admin' ? 'bg-amber-100 text-amber-600' :
-                                                        user.role === 'operador' ? 'bg-blue-100 text-blue-600' :
-                                                            'bg-slate-200 text-slate-500'
+                                                    user.role === 'operador' ? 'bg-blue-100 text-blue-600' :
+                                                        'bg-slate-200 text-slate-500'
                                                     }`}>
                                                     {user.role === 'admin' ? <Shield size={14} /> : <UserIcon size={14} />}
                                                 </div>
@@ -327,15 +348,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                                     </p>
                                                 </div>
                                             </div>
-                                            {user.id !== currentUser?.id && (
-                                                <button
-                                                    onClick={() => handleDeleteUser(user.id)}
-                                                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
-                                                    title="Remover usuário"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            )}
+                                            <div className="flex items-center gap-1">
+                                                {editingUserId === user.id ? (
+                                                    <>
+                                                        <select
+                                                            value={editingRole}
+                                                            onChange={(e) => setEditingRole(e.target.value as 'admin' | 'operador' | 'user')}
+                                                            className="px-2 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-abb-red"
+                                                        >
+                                                            <option value="user">Visualização</option>
+                                                            <option value="operador">Operador</option>
+                                                            <option value="admin">Administrador</option>
+                                                        </select>
+                                                        <button
+                                                            onClick={() => handleSaveEdit(user.id)}
+                                                            className="p-1.5 text-green-600 hover:bg-green-50 rounded transition-all"
+                                                            title="Salvar"
+                                                        >
+                                                            <Check size={14} />
+                                                        </button>
+                                                        <button
+                                                            onClick={handleCancelEdit}
+                                                            className="p-1.5 text-slate-400 hover:bg-slate-100 rounded transition-all"
+                                                            title="Cancelar"
+                                                        >
+                                                            <XCircle size={14} />
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    user.id !== currentUser?.id && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => handleStartEdit(user)}
+                                                                className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-all"
+                                                                title="Editar papel"
+                                                            >
+                                                                <Edit3 size={14} />
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDeleteUser(user.id)}
+                                                                className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                                                title="Remover usuário"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </>
+                                                    )
+                                                )}
+                                            </div>
                                         </div>
                                     ))}
 

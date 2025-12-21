@@ -602,6 +602,11 @@ const App: React.FC = () => {
         showToast('Usuário removido');
     };
 
+    const handleUpdateUser = (id: string, updates: Partial<User>) => {
+        setUsers(prev => prev.map(u => u.id === id ? { ...u, ...updates } : u));
+        showToast('Usuário atualizado!');
+    };
+
     const handleUpdateSettings = (newSettings: AppSettings) => {
         setAppSettings(newSettings);
     };
@@ -686,6 +691,7 @@ const App: React.FC = () => {
                 users={users}
                 onAddUser={handleAddUser}
                 onDeleteUser={handleDeleteUser}
+                onUpdateUser={handleUpdateUser}
             />
 
             {/* --- HEADER & CONTROLS --- */}
