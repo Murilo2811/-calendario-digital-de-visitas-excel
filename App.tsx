@@ -803,12 +803,16 @@ const App: React.FC = () => {
                             <button onClick={handleExport} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Baixar Excel">
                                 <Download size={18} />
                             </button>
-                            <button onClick={() => setIsTechModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Gerenciar Equipe">
-                                <Users size={18} />
-                            </button>
-                            <button onClick={() => setIsClientModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Gerenciar Clientes">
-                                <Building2 size={18} />
-                            </button>
+                            {userCanEdit && (
+                                <>
+                                    <button onClick={() => setIsTechModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Gerenciar Equipe">
+                                        <Users size={18} />
+                                    </button>
+                                    <button onClick={() => setIsClientModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Gerenciar Clientes">
+                                        <Building2 size={18} />
+                                    </button>
+                                </>
+                            )}
 
                             <button onClick={() => setIsHelpModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Ajuda e Instruções">
                                 <HelpCircle size={18} />
@@ -834,22 +838,24 @@ const App: React.FC = () => {
                                 </button>
                             </div>
 
-                            <div className="flex items-center gap-1 ml-2">
-                                <button
-                                    onClick={() => setIsQuickAddOpen(true)}
-                                    className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-lg flex items-center gap-2 font-bold shadow-md shadow-amber-500/20 transition-all text-sm"
-                                    title="Adição Rápida"
-                                >
-                                    <Zap size={18} fill="currentColor" /> Rápido
-                                </button>
+                            {userCanEdit && (
+                                <div className="flex items-center gap-1 ml-2">
+                                    <button
+                                        onClick={() => setIsQuickAddOpen(true)}
+                                        className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-lg flex items-center gap-2 font-bold shadow-md shadow-amber-500/20 transition-all text-sm"
+                                        title="Adição Rápida"
+                                    >
+                                        <Zap size={18} fill="currentColor" /> Rápido
+                                    </button>
 
-                                <button
-                                    onClick={() => setIsModalOpen(true)}
-                                    className="bg-abb-red hover:brightness-110 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium shadow-md shadow-abb-red/20 transition-all"
-                                >
-                                    <Plus size={18} /> Novo
-                                </button>
-                            </div>
+                                    <button
+                                        onClick={() => setIsModalOpen(true)}
+                                        className="bg-abb-red hover:brightness-110 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium shadow-md shadow-abb-red/20 transition-all"
+                                    >
+                                        <Plus size={18} /> Novo
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -936,6 +942,7 @@ const App: React.FC = () => {
                         clients={clients}
                         onUpdate={updateService}
                         onDelete={deleteService}
+                        canEdit={userCanEdit}
                     />
                 ) : (
                     <ResourceTimeline
@@ -945,6 +952,7 @@ const App: React.FC = () => {
                         onServiceClick={handleServiceClick}
                         rangeStart={rangeStart}
                         rangeEnd={rangeEnd}
+                        canEdit={userCanEdit}
                     />
                 )}
             </main>
