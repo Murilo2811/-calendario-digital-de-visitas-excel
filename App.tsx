@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
-import { Service, Technician, ViewMode, ServiceStatus, TechType, Client } from './types';
+import { Service, Technician, ViewMode, ServiceStatus, TechType, Client, User, AppSettings } from './types';
 import { INITIAL_SERVICES, TECHNICIANS, INITIAL_CLIENTS } from './constants';
 import { ServiceGrid } from './components/ServiceGrid';
 import { ResourceTimeline } from './components/ResourceTimeline';
@@ -8,6 +8,10 @@ import { QuickAddModal } from './components/QuickAddModal';
 import { TechManagerModal } from './components/TechManagerModal';
 import { ClientManagerModal } from './components/ClientManagerModal';
 import { HelpModal } from './components/HelpModal';
+import { ConfirmDisconnectModal } from './components/ConfirmDisconnectModal';
+import { LoginPage } from './components/LoginPage';
+import { SettingsModal } from './components/SettingsModal';
+import { createDefaultAdmin, canEdit } from './authService';
 import { calculateDuration, exportToExcel } from './utils';
 import {
     openExcelFile,
@@ -48,7 +52,9 @@ import {
     FileSpreadsheet,
     Unplug,
     Loader2,
-    FilePlus2
+    FilePlus2,
+    Settings,
+    LogOut
 } from 'lucide-react';
 
 // Helper to sort technicians: Internal first, then Alphabetical by Name
@@ -71,6 +77,7 @@ const App: React.FC = () => {
     const [isTechModalOpen, setIsTechModalOpen] = useState(false);
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
     const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+    const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false);
     const [editingService, setEditingService] = useState<Service | null>(null);
 
     const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
@@ -95,6 +102,38 @@ const App: React.FC = () => {
 
     // Clock State
     const [currentDateTime, setCurrentDateTime] = useState(new Date());
+
+    // Auth State
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
+    const [users, setUsers] = useState<User[]>([]);
+    const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+
+    // App Settings with localStorage
+    const [appSettings, setAppSettings] = useState<AppSettings>(() => {
+        const saved = localStorage.getItem('appSettings');
+        if (saved) {
+            try { return JSON.parse(saved); } catch { }
+        }
+        return { lastExcelFileName: '', autoReconnectPrompt: true };
+    });
+
+    // Persist appSettings to localStorage
+    useEffect(() => {
+        localStorage.setItem('appSettings', JSON.stringify(appSettings));
+    }, [appSettings]);
+
+    // Show reconnect prompt on mount
+    useEffect(() => {
+        if (appSettings.autoReconnectPrompt && appSettings.lastExcelFileName && !isExcelConnected && !currentUser) {
+            const shouldReconnect = window.confirm(
+                `Deseja reconectar ao arquivo "${appSettings.lastExcelFileName}"?\n\nClique em OK e selecione o arquivo.`
+            );
+            if (shouldReconnect) {
+                handleConnectExcel();
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     useEffect(() => {
         const timer = setInterval(() => {
@@ -135,11 +174,12 @@ const App: React.FC = () => {
     const saveToExcelIfConnected = useCallback(async (
         newServices: Service[],
         newTechnicians: Technician[],
-        newClients: Client[]
+        newClients: Client[],
+        newUsers: User[]
     ) => {
         if (excelHandle && isExcelConnected) {
             try {
-                await saveAllToExcel(excelHandle, newServices, newTechnicians, newClients);
+                await saveAllToExcel(excelHandle, newServices, newTechnicians, newClients, newUsers);
             } catch (error) {
                 console.error('Erro ao salvar no Excel:', error);
                 showToast('Erro ao salvar no Excel!');
@@ -159,7 +199,7 @@ const App: React.FC = () => {
             if (handle) {
                 const data = await readAllFromExcel(handle);
 
-                // Se tem dados, carrega. Se não, mantém os atuais
+                // Carregar dados
                 if (data.technicians.length > 0) {
                     setTechnicians(sortTechnicians(data.technicians));
                 }
@@ -170,9 +210,21 @@ const App: React.FC = () => {
                     setServices(data.services);
                 }
 
+                // Carregar usuários ou criar admin padrão
+                if (data.users.length > 0) {
+                    setUsers(data.users);
+                } else {
+                    const defaultAdmin = await createDefaultAdmin();
+                    setUsers([defaultAdmin]);
+                }
+
                 setExcelHandle(handle);
                 setExcelFileName(handle.name);
                 setIsExcelConnected(true);
+
+                // Salvar nome do arquivo nas configurações
+                setAppSettings(prev => ({ ...prev, lastExcelFileName: handle.name }));
+
                 showToast(`Conectado ao arquivo: ${handle.name}`);
             }
         } catch (error) {
@@ -193,8 +245,12 @@ const App: React.FC = () => {
         try {
             const handle = await createNewExcelFile();
             if (handle) {
+                // Criar admin padrão para novo arquivo
+                const defaultAdmin = await createDefaultAdmin();
+                setUsers([defaultAdmin]);
+
                 // Salvar dados atuais no novo arquivo
-                await saveAllToExcel(handle, services, technicians, clients);
+                await saveAllToExcel(handle, services, technicians, clients, [defaultAdmin]);
 
                 setExcelHandle(handle);
                 setExcelFileName(handle.name);
@@ -210,21 +266,49 @@ const App: React.FC = () => {
     };
 
     const handleDisconnectExcel = () => {
+        // Abre o modal de confirmação em vez de desconectar diretamente
+        setIsDisconnectModalOpen(true);
+    };
+
+    const handleSaveAndDisconnect = async () => {
+        if (excelHandle) {
+            setIsExcelLoading(true);
+            try {
+                await saveAllToExcel(excelHandle, services, technicians, clients, users);
+                showToast('Alterações salvas com sucesso!');
+            } catch (error) {
+                console.error('Erro ao salvar:', error);
+                showToast('Erro ao salvar alterações');
+            } finally {
+                setIsExcelLoading(false);
+            }
+        }
         setExcelHandle(null);
         setExcelFileName('');
         setIsExcelConnected(false);
+        setIsDisconnectModalOpen(false);
         showToast('Desconectado do arquivo Excel');
+        setCurrentUser(null); // Logout ao desconectar
+    };
+
+    const handleDisconnectWithoutSave = () => {
+        setExcelHandle(null);
+        setExcelFileName('');
+        setIsExcelConnected(false);
+        setIsDisconnectModalOpen(false);
+        showToast('Desconectado do arquivo Excel (sem salvar)');
+        setCurrentUser(null); // Logout ao desconectar
     };
 
     // Auto-save quando dados mudam e está conectado
     useEffect(() => {
         if (isExcelConnected && excelHandle) {
             const timeoutId = setTimeout(() => {
-                saveToExcelIfConnected(services, technicians, clients);
+                saveToExcelIfConnected(services, technicians, clients, users);
             }, 500); // Debounce de 500ms
             return () => clearTimeout(timeoutId);
         }
-    }, [services, technicians, clients, isExcelConnected, excelHandle, saveToExcelIfConnected]);
+    }, [services, technicians, clients, users, isExcelConnected, excelHandle, saveToExcelIfConnected]);
 
     // --- Date Logic ---
     const { rangeStart, rangeEnd } = useMemo(() => {
@@ -497,6 +581,49 @@ const App: React.FC = () => {
 
     const handleExport = () => exportToExcel(services, technicians);
 
+    // --- Auth Handlers ---
+    const handleLogin = (user: User) => {
+        setCurrentUser(user);
+        showToast(`Bem-vindo, ${user.fullName}!`);
+    };
+
+    const handleLogout = () => {
+        setCurrentUser(null);
+        showToast('Você foi desconectado');
+    };
+
+    const handleAddUser = (user: User) => {
+        setUsers(prev => [...prev, user]);
+        showToast('Usuário adicionado com sucesso!');
+    };
+
+    const handleDeleteUser = (id: string) => {
+        setUsers(prev => prev.filter(u => u.id !== id));
+        showToast('Usuário removido');
+    };
+
+    const handleUpdateSettings = (newSettings: AppSettings) => {
+        setAppSettings(newSettings);
+    };
+
+    // Se não está logado, mostra tela de login
+    if (!currentUser) {
+        return (
+            <LoginPage
+                onLogin={handleLogin}
+                onConnectExcel={handleConnectExcel}
+                onCreateExcel={handleCreateNewExcel}
+                isExcelConnected={isExcelConnected}
+                isExcelLoading={isExcelLoading}
+                excelFileName={excelFileName}
+                users={users}
+            />
+        );
+    }
+
+    // Verifica se usuário pode editar
+    const userCanEdit = canEdit(currentUser);
+
     return (
         <div className="h-screen flex flex-col font-sans text-slate-800 bg-slate-50">
 
@@ -538,6 +665,28 @@ const App: React.FC = () => {
                 onClose={() => setIsHelpModalOpen(false)}
             />
 
+            <ConfirmDisconnectModal
+                isOpen={isDisconnectModalOpen}
+                fileName={excelFileName}
+                onSaveAndDisconnect={handleSaveAndDisconnect}
+                onDisconnectWithoutSave={handleDisconnectWithoutSave}
+                onCancel={() => setIsDisconnectModalOpen(false)}
+                isSaving={isExcelLoading}
+            />
+
+            <SettingsModal
+                isOpen={isSettingsModalOpen}
+                onClose={() => setIsSettingsModalOpen(false)}
+                currentUser={currentUser}
+                appSettings={appSettings}
+                onUpdateSettings={handleUpdateSettings}
+                excelFileName={excelFileName}
+                isExcelConnected={isExcelConnected}
+                users={users}
+                onAddUser={handleAddUser}
+                onDeleteUser={handleDeleteUser}
+            />
+
             {/* --- HEADER & CONTROLS --- */}
             <header className="bg-white/80 backdrop-blur-sm border-b border-slate-200 p-4 space-y-4 sticky top-0 z-30">
                 <div className="flex items-center justify-between gap-4">
@@ -556,16 +705,6 @@ const App: React.FC = () => {
                         <div>
                             <h1 className="text-lg font-bold text-slate-900 leading-none">Digital Visitor Calendar</h1>
                             <p className="text-xs text-slate-500 font-medium">Gestão de Técnicos</p>
-                        </div>
-
-                        {/* Clock Display */}
-                        <div className="hidden md:flex flex-col ml-4 pl-4 border-l border-slate-200">
-                            <span className="text-xs font-bold text-slate-700 capitalize leading-tight">
-                                {format(currentDateTime, "EEEE, d 'de' MMMM", { locale: ptBR })}
-                            </span>
-                            <span className="text-xs font-mono text-slate-500 leading-tight">
-                                {format(currentDateTime, "HH:mm:ss")}
-                            </span>
                         </div>
                     </div>
 
@@ -674,6 +813,26 @@ const App: React.FC = () => {
                             <button onClick={() => setIsHelpModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Ajuda e Instruções">
                                 <HelpCircle size={18} />
                             </button>
+
+                            <button onClick={() => setIsSettingsModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Configurações">
+                                <Settings size={18} />
+                            </button>
+
+                            <div className="h-8 w-px bg-slate-200 mx-1"></div>
+
+                            {/* User Info & Logout */}
+                            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-lg">
+                                <span className="text-xs font-medium text-slate-600 max-w-[100px] truncate" title={currentUser?.fullName}>
+                                    {currentUser?.fullName}
+                                </span>
+                                <button
+                                    onClick={handleLogout}
+                                    className="p-1 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded transition-all"
+                                    title="Sair"
+                                >
+                                    <LogOut size={14} />
+                                </button>
+                            </div>
 
                             <div className="flex items-center gap-1 ml-2">
                                 <button

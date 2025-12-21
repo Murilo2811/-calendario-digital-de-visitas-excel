@@ -4,7 +4,7 @@
  * Compatível apenas com Chrome e Edge.
  */
 
-import { Service, Technician, Client, ServiceStatus, TechType } from './types';
+import { Service, Technician, Client, User, ServiceStatus, TechType, UserRole } from './types';
 import * as XLSX from 'xlsx';
 
 // Tipo para o handle do arquivo (navegador)
@@ -32,6 +32,7 @@ interface SaveFilePickerOptions {
 const SHEET_SERVICES = 'Atividades';
 const SHEET_TECHNICIANS = 'Tecnicos';
 const SHEET_CLIENTS = 'Clientes';
+const SHEET_USERS = 'Usuarios';
 
 /**
  * Verifica se o navegador suporta File System Access API
@@ -118,7 +119,7 @@ const readWorkbook = async (handle: FileHandle): Promise<XLSX.WorkBook> => {
  */
 const parseExcelDate = (value: unknown): string => {
   if (!value) return '';
-  
+
   // Se já é uma Date
   if (value instanceof Date) {
     const year = value.getFullYear();
@@ -126,7 +127,7 @@ const parseExcelDate = (value: unknown): string => {
     const day = String(value.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }
-  
+
   // Se é número (serial date do Excel)
   if (typeof value === 'number') {
     const date = XLSX.SSF.parse_date_code(value);
@@ -137,7 +138,7 @@ const parseExcelDate = (value: unknown): string => {
       return `${year}-${month}-${day}`;
     }
   }
-  
+
   // Se é string, tentar parsear
   if (typeof value === 'string') {
     // Formato YYYY-MM-DD
@@ -150,7 +151,7 @@ const parseExcelDate = (value: unknown): string => {
       return `${match[3]}-${match[2]}-${match[1]}`;
     }
   }
-  
+
   return String(value);
 };
 
@@ -185,14 +186,14 @@ const parseTechType = (value: string): TechType => {
 export const readServicesFromExcel = async (handle: FileHandle, technicians: Technician[]): Promise<Service[]> => {
   const workbook = await readWorkbook(handle);
   const sheet = workbook.Sheets[SHEET_SERVICES];
-  
+
   if (!sheet) {
     console.log('Aba "Atividades" não encontrada, retornando lista vazia');
     return [];
   }
-  
+
   const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-  
+
   return data.map((row, index) => {
     // Converter nomes de técnicos para IDs
     const techString = String(row['Tecnicos'] || row['EXEC.'] || '');
@@ -200,7 +201,7 @@ export const readServicesFromExcel = async (handle: FileHandle, technicians: Tec
     const technicianIds = techNames
       .map(name => technicians.find(t => t.name === name || t.fullName === name)?.id)
       .filter((id): id is string => !!id);
-    
+
     return {
       id: String(row['ID'] || `svc-imported-${index}-${Date.now()}`),
       week: Number(row['Semana'] || row['SEM.'] || 0),
@@ -227,14 +228,14 @@ export const readServicesFromExcel = async (handle: FileHandle, technicians: Tec
 export const readTechniciansFromExcel = async (handle: FileHandle): Promise<Technician[]> => {
   const workbook = await readWorkbook(handle);
   const sheet = workbook.Sheets[SHEET_TECHNICIANS];
-  
+
   if (!sheet) {
     console.log('Aba "Tecnicos" não encontrada, retornando lista vazia');
     return [];
   }
-  
+
   const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-  
+
   return data.map((row, index) => ({
     id: String(row['ID'] || `tech-${index}-${Date.now()}`),
     name: String(row['Sigla'] || ''),
@@ -250,14 +251,14 @@ export const readTechniciansFromExcel = async (handle: FileHandle): Promise<Tech
 export const readClientsFromExcel = async (handle: FileHandle): Promise<Client[]> => {
   const workbook = await readWorkbook(handle);
   const sheet = workbook.Sheets[SHEET_CLIENTS];
-  
+
   if (!sheet) {
     console.log('Aba "Clientes" não encontrada, retornando lista vazia');
     return [];
   }
-  
+
   const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-  
+
   return data.map((row, index) => ({
     id: String(row['ID'] || `cli-${index}-${Date.now()}`),
     name: String(row['Nome'] || row['Nome Fantasia'] || ''),
@@ -272,19 +273,45 @@ export const readClientsFromExcel = async (handle: FileHandle): Promise<Client[]
 };
 
 /**
+ * Lê usuários do Excel
+ */
+export const readUsersFromExcel = async (handle: FileHandle): Promise<User[]> => {
+  const workbook = await readWorkbook(handle);
+  const sheet = workbook.Sheets[SHEET_USERS];
+
+  if (!sheet) {
+    console.log('Aba "Usuarios" não encontrada, retornando lista vazia');
+    return [];
+  }
+
+  const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
+
+  return data.map((row, index) => ({
+    id: String(row['ID'] || `user-${index}-${Date.now()}`),
+    username: String(row['Usuario'] || ''),
+    passwordHash: String(row['SenhaHash'] || ''),
+    role: (String(row['Papel'] || 'user') as UserRole),
+    fullName: String(row['NomeCompleto'] || ''),
+    createdAt: parseExcelDate(row['CriadoEm']),
+  }));
+};
+
+/**
  * Lê todos os dados do Excel
  */
 export const readAllFromExcel = async (handle: FileHandle): Promise<{
   services: Service[];
   technicians: Technician[];
   clients: Client[];
+  users: User[];
 }> => {
   // Ler técnicos primeiro para usar no mapeamento de serviços
   const technicians = await readTechniciansFromExcel(handle);
   const clients = await readClientsFromExcel(handle);
   const services = await readServicesFromExcel(handle, technicians);
-  
-  return { services, technicians, clients };
+  const users = await readUsersFromExcel(handle);
+
+  return { services, technicians, clients, users };
 };
 
 /**
@@ -294,18 +321,19 @@ export const saveAllToExcel = async (
   handle: FileHandle,
   services: Service[],
   technicians: Technician[],
-  clients: Client[]
+  clients: Client[],
+  users: User[] = []
 ): Promise<void> => {
   // Criar workbook novo
   const workbook = XLSX.utils.book_new();
-  
+
   // --- Aba de Atividades ---
   const servicesData = services.map(s => {
     const techNames = s.technicianIds
       .map(id => technicians.find(t => t.id === id)?.name || '')
       .filter(Boolean)
       .join(', ');
-    
+
     return {
       'ID': s.id,
       'Semana': s.week,
@@ -324,7 +352,7 @@ export const saveAllToExcel = async (
       'Periodo': s.period || 0,
     };
   });
-  
+
   const servicesSheet = XLSX.utils.json_to_sheet(servicesData);
   servicesSheet['!cols'] = [
     { wch: 20 }, // ID
@@ -344,7 +372,7 @@ export const saveAllToExcel = async (
     { wch: 8 },  // Periodo
   ];
   XLSX.utils.book_append_sheet(workbook, servicesSheet, SHEET_SERVICES);
-  
+
   // --- Aba de Técnicos ---
   const techniciansData = technicians.map(t => ({
     'ID': t.id,
@@ -353,7 +381,7 @@ export const saveAllToExcel = async (
     'Tipo': t.type,
     'Cor': t.color,
   }));
-  
+
   const techniciansSheet = XLSX.utils.json_to_sheet(techniciansData);
   techniciansSheet['!cols'] = [
     { wch: 15 }, // ID
@@ -363,7 +391,7 @@ export const saveAllToExcel = async (
     { wch: 15 }, // Cor
   ];
   XLSX.utils.book_append_sheet(workbook, techniciansSheet, SHEET_TECHNICIANS);
-  
+
   // --- Aba de Clientes ---
   const clientsData = clients.map(c => ({
     'ID': c.id,
@@ -376,7 +404,7 @@ export const saveAllToExcel = async (
     'Email': c.email || '',
     'Telefone': c.phone || '',
   }));
-  
+
   const clientsSheet = XLSX.utils.json_to_sheet(clientsData);
   clientsSheet['!cols'] = [
     { wch: 15 }, // ID
@@ -390,13 +418,34 @@ export const saveAllToExcel = async (
     { wch: 15 }, // Telefone
   ];
   XLSX.utils.book_append_sheet(workbook, clientsSheet, SHEET_CLIENTS);
-  
+
+  // --- Aba de Usuários ---
+  const usersData = users.map(u => ({
+    'ID': u.id,
+    'Usuario': u.username,
+    'SenhaHash': u.passwordHash,
+    'Papel': u.role,
+    'NomeCompleto': u.fullName,
+    'CriadoEm': u.createdAt,
+  }));
+
+  const usersSheet = XLSX.utils.json_to_sheet(usersData);
+  usersSheet['!cols'] = [
+    { wch: 20 }, // ID
+    { wch: 25 }, // Usuario
+    { wch: 70 }, // SenhaHash
+    { wch: 10 }, // Papel
+    { wch: 30 }, // NomeCompleto
+    { wch: 12 }, // CriadoEm
+  ];
+  XLSX.utils.book_append_sheet(workbook, usersSheet, SHEET_USERS);
+
   // Escrever no arquivo
   const excelBuffer = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
-  const blob = new Blob([excelBuffer], { 
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+  const blob = new Blob([excelBuffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
   });
-  
+
   // Usar File System Access API para escrever
   const writable = await handle.createWritable();
   await writable.write(blob);
@@ -414,7 +463,7 @@ export const validateExcelStructure = async (handle: FileHandle): Promise<{
 }> => {
   try {
     const workbook = await readWorkbook(handle);
-    
+
     return {
       isValid: true,
       hasServices: !!workbook.Sheets[SHEET_SERVICES],
