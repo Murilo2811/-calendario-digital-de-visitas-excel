@@ -18,7 +18,9 @@ import {
     AlertCircle,
     Edit3,
     Check,
-    XCircle
+    XCircle,
+    Key,
+    Lock
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -48,7 +50,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onDeleteUser,
     onUpdateUser,
 }) => {
-    const [activeTab, setActiveTab] = useState<'excel' | 'users'>('excel');
+    const [activeTab, setActiveTab] = useState<'excel' | 'users' | 'account'>('excel');
     const [newUsername, setNewUsername] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [newFullName, setNewFullName] = useState('');
@@ -58,6 +60,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const [isAddingUser, setIsAddingUser] = useState(false);
     const [editingUserId, setEditingUserId] = useState<string | null>(null);
     const [editingRole, setEditingRole] = useState<'admin' | 'operador' | 'user'>('user');
+    // Estados para alterar senha
+    const [currentPassword, setCurrentPassword] = useState('');
+    const [newPasswordChange, setNewPasswordChange] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [passwordError, setPasswordError] = useState('');
+    const [passwordSuccess, setPasswordSuccess] = useState('');
+    const [isChangingPassword, setIsChangingPassword] = useState(false);
+    // Estados para reset de senha pelo admin
+    const [resetUserId, setResetUserId] = useState<string | null>(null);
+    const [resetNewPassword, setResetNewPassword] = useState('');
 
     if (!isOpen) return null;
 
@@ -131,6 +145,66 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setEditingUserId(null);
     };
 
+    const handleChangePassword = async () => {
+        setPasswordError('');
+        setPasswordSuccess('');
+
+        if (!currentPassword.trim() || !newPasswordChange.trim() || !confirmPassword.trim()) {
+            setPasswordError('Preencha todos os campos');
+            return;
+        }
+
+        if (newPasswordChange !== confirmPassword) {
+            setPasswordError('As senhas não coincidem');
+            return;
+        }
+
+        if (newPasswordChange.length < 4) {
+            setPasswordError('A senha deve ter pelo menos 4 caracteres');
+            return;
+        }
+
+        setIsChangingPassword(true);
+        try {
+            const currentHash = await hashPassword(currentPassword);
+
+            if (currentUser && currentHash !== currentUser.passwordHash) {
+                setPasswordError('Senha atual incorreta');
+                return;
+            }
+
+            const newHash = await hashPassword(newPasswordChange);
+            if (currentUser) {
+                onUpdateUser(currentUser.id, { passwordHash: newHash });
+                setPasswordSuccess('Senha alterada com sucesso!');
+                setCurrentPassword('');
+                setNewPasswordChange('');
+                setConfirmPassword('');
+            }
+        } catch (err) {
+            setPasswordError('Erro ao alterar senha');
+        } finally {
+            setIsChangingPassword(false);
+        }
+    };
+
+    const handleResetPassword = async (userId: string) => {
+        if (!resetNewPassword.trim()) {
+            alert('Digite uma nova senha');
+            return;
+        }
+
+        try {
+            const newHash = await hashPassword(resetNewPassword);
+            onUpdateUser(userId, { passwordHash: newHash });
+            setResetUserId(null);
+            setResetNewPassword('');
+            alert('Senha resetada com sucesso!');
+        } catch (err) {
+            alert('Erro ao resetar senha');
+        }
+    };
+
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -178,6 +252,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             Usuários
                         </button>
                     )}
+                    <button
+                        onClick={() => setActiveTab('account')}
+                        className={`flex-1 px-4 py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${activeTab === 'account'
+                            ? 'bg-white border-b-2 border-abb-red text-abb-red'
+                            : 'text-slate-500 hover:text-slate-700'
+                            }`}
+                    >
+                        <Key size={16} />
+                        Minha Conta
+                    </button>
                 </div>
 
                 {/* Content */}
@@ -406,6 +490,117 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     )}
                                 </div>
                             </div>
+                        </div>
+                    )}
+
+                    {/* Tab: Minha Conta */}
+                    {activeTab === 'account' && currentUser && currentUser.id.indexOf('guest') === -1 && (
+                        <div className="space-y-6">
+                            {/* Informações do usuário */}
+                            <div>
+                                <h3 className="text-sm font-bold text-slate-700 mb-3">Meus Dados</h3>
+                                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-2">
+                                    <p className="text-sm"><strong>Nome:</strong> {currentUser.fullName}</p>
+                                    <p className="text-sm"><strong>Usuário:</strong> @{currentUser.username}</p>
+                                    <p className="text-sm"><strong>Papel:</strong> {
+                                        currentUser.role === 'admin' ? 'Administrador' :
+                                            currentUser.role === 'operador' ? 'Operador' :
+                                                'Visualização'
+                                    }</p>
+                                </div>
+                            </div>
+
+                            {/* Alterar Senha */}
+                            <div>
+                                <h3 className="text-sm font-bold text-slate-700 mb-3">Alterar Senha</h3>
+                                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
+                                    {/* Senha atual */}
+                                    <div className="relative">
+                                        <input
+                                            type={showCurrentPassword ? 'text' : 'password'}
+                                            placeholder="Senha atual"
+                                            value={currentPassword}
+                                            onChange={(e) => setCurrentPassword(e.target.value)}
+                                            className="w-full px-3 py-2 pr-10 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                        >
+                                            {showCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
+
+                                    {/* Nova senha */}
+                                    <div className="relative">
+                                        <input
+                                            type={showNewPassword ? 'text' : 'password'}
+                                            placeholder="Nova senha"
+                                            value={newPasswordChange}
+                                            onChange={(e) => setNewPasswordChange(e.target.value)}
+                                            className="w-full px-3 py-2 pr-10 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowNewPassword(!showNewPassword)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                        >
+                                            {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
+
+                                    {/* Confirmar senha */}
+                                    <div className="relative">
+                                        <input
+                                            type={showConfirmPassword ? 'text' : 'password'}
+                                            placeholder="Confirmar nova senha"
+                                            value={confirmPassword}
+                                            onChange={(e) => setConfirmPassword(e.target.value)}
+                                            className="w-full px-3 py-2 pr-10 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                        >
+                                            {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                        </button>
+                                    </div>
+
+                                    {passwordError && (
+                                        <div className="flex items-center gap-2 text-red-600 text-sm">
+                                            <AlertCircle size={14} />
+                                            {passwordError}
+                                        </div>
+                                    )}
+
+                                    {passwordSuccess && (
+                                        <div className="flex items-center gap-2 text-green-600 text-sm">
+                                            <Check size={14} />
+                                            {passwordSuccess}
+                                        </div>
+                                    )}
+
+                                    <button
+                                        onClick={handleChangePassword}
+                                        disabled={isChangingPassword}
+                                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-abb-red hover:brightness-110 text-white font-medium rounded-lg transition-all disabled:opacity-50"
+                                    >
+                                        <Lock size={16} />
+                                        Alterar Senha
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Visitante não pode alterar senha */}
+                    {activeTab === 'account' && currentUser && currentUser.id.indexOf('guest') !== -1 && (
+                        <div className="text-center py-8 text-slate-500">
+                            <UserIcon size={48} className="mx-auto mb-4 opacity-50" />
+                            <p>Visitantes não podem alterar senha.</p>
+                            <p className="text-sm mt-2">Faça login com uma conta cadastrada.</p>
                         </div>
                     )}
                 </div>
