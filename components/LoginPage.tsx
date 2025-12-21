@@ -8,14 +8,12 @@ import {
     EyeOff,
     Loader2,
     AlertCircle,
-    FilePlus2,
     CheckCircle
 } from 'lucide-react';
 
 interface LoginPageProps {
     onLogin: (user: User) => void;
     onConnectExcel: () => Promise<void>;
-    onCreateExcel: () => Promise<void>;
     isExcelConnected: boolean;
     isExcelLoading: boolean;
     excelFileName: string;
@@ -25,7 +23,6 @@ interface LoginPageProps {
 export const LoginPage: React.FC<LoginPageProps> = ({
     onLogin,
     onConnectExcel,
-    onCreateExcel,
     isExcelConnected,
     isExcelLoading,
     excelFileName,
@@ -103,28 +100,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                                 </div>
                             </div>
                         ) : (
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={onConnectExcel}
-                                    disabled={isExcelLoading}
-                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-all disabled:opacity-50"
-                                >
-                                    {isExcelLoading ? (
-                                        <Loader2 size={18} className="animate-spin" />
-                                    ) : (
-                                        <FileSpreadsheet size={18} />
-                                    )}
-                                    Conectar Excel
-                                </button>
-                                <button
-                                    onClick={onCreateExcel}
-                                    disabled={isExcelLoading}
-                                    className="p-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-all disabled:opacity-50"
-                                    title="Criar novo arquivo"
-                                >
-                                    <FilePlus2 size={18} />
-                                </button>
-                            </div>
+                            <button
+                                onClick={onConnectExcel}
+                                disabled={isExcelLoading}
+                                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg transition-all disabled:opacity-50"
+                            >
+                                {isExcelLoading ? (
+                                    <Loader2 size={18} className="animate-spin" />
+                                ) : (
+                                    <FileSpreadsheet size={18} />
+                                )}
+                                Conectar Excel
+                            </button>
                         )}
                     </div>
 

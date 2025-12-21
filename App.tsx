@@ -612,7 +612,6 @@ const App: React.FC = () => {
             <LoginPage
                 onLogin={handleLogin}
                 onConnectExcel={handleConnectExcel}
-                onCreateExcel={handleCreateNewExcel}
                 isExcelConnected={isExcelConnected}
                 isExcelLoading={isExcelLoading}
                 excelFileName={excelFileName}
