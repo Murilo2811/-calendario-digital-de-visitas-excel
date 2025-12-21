@@ -8,7 +8,8 @@ import {
     EyeOff,
     Loader2,
     AlertCircle,
-    CheckCircle
+    CheckCircle,
+    UserPlus
 } from 'lucide-react';
 
 interface LoginPageProps {
@@ -65,6 +66,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const handleGuestLogin = () => {
+        if (!isExcelConnected) {
+            setError('Conecte-se a um arquivo Excel primeiro');
+            return;
+        }
+
+        // Criar usuário visitante temporário
+        const guestUser: User = {
+            id: 'guest-' + Date.now(),
+            username: 'visitante',
+            passwordHash: '',
+            role: 'user',
+            fullName: 'Visitante',
+            createdAt: new Date().toISOString().split('T')[0],
+        };
+
+        onLogin(guestUser);
     };
 
     return (
@@ -189,6 +209,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     {/* Aviso de navegador */}
                     <p className="text-xs text-slate-400 text-center mt-6">
                         Use Chrome ou Edge para acessar arquivos locais
+                    </p>
+
+                    {/* Separador */}
+                    <div className="flex items-center gap-4 mt-6">
+                        <div className="flex-1 h-px bg-slate-200"></div>
+                        <span className="text-xs text-slate-400">ou</span>
+                        <div className="flex-1 h-px bg-slate-200"></div>
+                    </div>
+
+                    {/* Botão de Visitante */}
+                    <button
+                        onClick={handleGuestLogin}
+                        disabled={!isExcelConnected}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 mt-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed border border-slate-200"
+                    >
+                        <UserPlus size={18} />
+                        Entrar como Visitante
+                    </button>
+                    <p className="text-xs text-slate-400 text-center mt-2">
+                        Acesso somente para visualização
                     </p>
                 </div>
             </div>
