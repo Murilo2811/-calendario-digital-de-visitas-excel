@@ -848,25 +848,6 @@ const App: React.FC = () => {
                                     <LogOut size={14} />
                                 </button>
                             </div>
-
-                            {userCanEdit && (
-                                <div className="flex items-center gap-1 ml-2">
-                                    <button
-                                        onClick={() => setIsQuickAddOpen(true)}
-                                        className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-lg flex items-center gap-2 font-bold shadow-md shadow-amber-500/20 transition-all text-sm"
-                                        title="Adição Rápida"
-                                    >
-                                        <Zap size={18} fill="currentColor" /> Rápido
-                                    </button>
-
-                                    <button
-                                        onClick={() => setIsModalOpen(true)}
-                                        className="bg-abb-red hover:brightness-110 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-medium shadow-md shadow-abb-red/20 transition-all"
-                                    >
-                                        <Plus size={18} /> Novo
-                                    </button>
-                                </div>
-                            )}
                         </div>
                     </div>
                 </div>
@@ -915,6 +896,25 @@ const App: React.FC = () => {
                             <Layers size={14} />
                             {isGrouped ? 'Agrupado' : 'Agrupar'}
                         </button>
+                    )}
+
+                    {userCanEdit && (
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => setIsQuickAddOpen(true)}
+                                className="bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-lg flex items-center gap-2 font-bold shadow-md shadow-amber-500/20 transition-all text-sm"
+                                title="Adição Rápida"
+                            >
+                                <Zap size={16} fill="currentColor" /> Rápido
+                            </button>
+
+                            <button
+                                onClick={() => setIsModalOpen(true)}
+                                className="bg-abb-red hover:brightness-110 text-white px-3 py-2 rounded-lg flex items-center gap-2 font-medium shadow-md shadow-abb-red/20 transition-all text-sm"
+                            >
+                                <Plus size={16} /> Novo
+                            </button>
+                        </div>
                     )}
 
                     <div className="relative" ref={legendRef}>
