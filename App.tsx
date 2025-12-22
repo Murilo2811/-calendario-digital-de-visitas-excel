@@ -135,12 +135,14 @@ const App: React.FC = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    useEffect(() => {
-        const timer = setInterval(() => {
-            setCurrentDateTime(new Date());
-        }, 1000);
-        return () => clearInterval(timer);
-    }, []);
+    // Clock update disabled to prevent re-render every second that causes edit loss
+    // TODO: Move clock to a separate component to avoid full App re-render
+    // useEffect(() => {
+    //     const timer = setInterval(() => {
+    //         setCurrentDateTime(new Date());
+    //     }, 1000);
+    //     return () => clearInterval(timer);
+    // }, []);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -695,7 +697,7 @@ const App: React.FC = () => {
             />
 
             {/* --- HEADER & CONTROLS --- */}
-            <header className="bg-white/80 backdrop-blur-sm border-b border-slate-200 p-4 space-y-4 sticky top-0 z-30">
+            <header className="bg-white/80 backdrop-blur-sm border-b border-slate-200 p-4 space-y-4 sticky top-0 z-40">
                 <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3 flex-shrink-0">
                         {/* 
