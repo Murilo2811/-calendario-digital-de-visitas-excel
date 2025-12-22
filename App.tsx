@@ -926,7 +926,7 @@ const App: React.FC = () => {
                             <ChevronDown size={14} className={`transition-transform duration-200 ${isLegendOpen ? 'rotate-180' : ''}`} />
                         </button>
                         {isLegendOpen && (
-                            <div className="absolute top-full mt-2 right-0 min-w-[240px] bg-white border border-slate-200 rounded-lg shadow-xl z-50 p-3">
+                            <div className="absolute top-full mt-2 right-0 min-w-[240px] bg-white border border-slate-200 rounded-lg shadow-xl z-[100] p-3">
                                 <div className="space-y-2.5">
                                     {legendItems.map((item, i) => (
                                         <div key={i} className="flex items-center gap-3">
