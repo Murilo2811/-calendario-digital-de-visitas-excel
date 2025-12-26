@@ -642,6 +642,7 @@ const App: React.FC = () => {
                 technicians={technicians}
                 clients={clients}
                 serviceToEdit={editingService}
+                canEdit={userCanEdit}
             />
 
             <QuickAddModal

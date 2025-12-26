@@ -19,11 +19,13 @@ interface ServiceGridProps {
 const TechnicianMultiSelect = ({
     selectedIds,
     technicians,
-    onChange
+    onChange,
+    disabled = false
 }: {
     selectedIds: string[],
     technicians: Technician[],
-    onChange: (ids: string[]) => void
+    onChange: (ids: string[]) => void,
+    disabled?: boolean
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -57,8 +59,8 @@ const TechnicianMultiSelect = ({
     return (
         <div className="relative w-full h-full" ref={containerRef}>
             <div
-                onClick={() => setIsOpen(!isOpen)}
-                className="w-full h-full flex items-center justify-center cursor-pointer hover:bg-slate-100 transition-colors px-1 group/select"
+                onClick={() => !disabled && setIsOpen(!isOpen)}
+                className={`w-full h-full flex items-center justify-center transition-colors px-1 group/select ${disabled ? 'cursor-default' : 'cursor-pointer hover:bg-slate-100'}`}
             >
                 <span className="font-bold text-abb-red text-xs truncate select-none flex-grow text-center">
                     {displayNames}
@@ -256,6 +258,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                             selectedIds={service.technicianIds || []}
                             technicians={technicians}
                             onChange={(newIds) => onUpdate(service.id, 'technicianIds', newIds)}
+                            disabled={!canEdit}
                         />
                     </td>
 
