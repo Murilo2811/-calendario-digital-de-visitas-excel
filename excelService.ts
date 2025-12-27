@@ -21,11 +21,13 @@ declare global {
 interface OpenFilePickerOptions {
   types?: { description: string; accept: Record<string, string[]> }[];
   multiple?: boolean;
+  startIn?: any; // FileSystemHandle or WellKnownDirectory
 }
 
 interface SaveFilePickerOptions {
   types?: { description: string; accept: Record<string, string[]> }[];
   suggestedName?: string;
+  startIn?: any;
 }
 
 // Constantes para nomes das abas
@@ -33,6 +35,56 @@ const SHEET_SERVICES = 'Atividades';
 const SHEET_TECHNICIANS = 'Tecnicos';
 const SHEET_CLIENTS = 'Clientes';
 const SHEET_USERS = 'Usuarios';
+
+// --- IndexedDB Helpers ---
+const DB_NAME = 'ServiceSyncDB';
+const STORE_NAME = 'config';
+const HANDLE_KEY = 'lastExcelHandle';
+
+const initDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+const saveLastHandle = async (handle: FileHandle): Promise<void> => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      store.put(handle, HANDLE_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (e) {
+    console.warn('Falha ao salvar handle no IndexedDB:', e);
+  }
+};
+
+const getLastHandle = async (): Promise<FileHandle | undefined> => {
+  try {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const request = store.get(HANDLE_KEY);
+      request.onsuccess = () => resolve(request.result as FileHandle);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (e) {
+    console.warn('Falha ao ler handle do IndexedDB:', e);
+    return undefined;
+  }
+};
 
 /**
  * Verifica se o navegador suporta File System Access API
@@ -51,6 +103,9 @@ export const openExcelFile = async (): Promise<FileHandle | null> => {
   }
 
   try {
+    // Tenta obter o último local usado
+    const lastHandle = await getLastHandle();
+
     const [handle] = await window.showOpenFilePicker!({
       types: [
         {
@@ -62,7 +117,14 @@ export const openExcelFile = async (): Promise<FileHandle | null> => {
         },
       ],
       multiple: false,
+      startIn: lastHandle // Sugere iniciar no mesmo local do último arquivo
     });
+
+    // Salva o novo handle para a próxima vez
+    if (handle) {
+      await saveLastHandle(handle);
+    }
+
     return handle;
   } catch (error: unknown) {
     if (error instanceof Error && error.name === 'AbortError') {
