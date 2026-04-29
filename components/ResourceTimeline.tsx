@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Service, ServiceStatus, Technician, TechType } from '../types';
 import { getDaysInRange } from '../utils';
 import { addDays } from 'date-fns/addDays';
@@ -23,6 +23,7 @@ interface ResourceTimelineProps {
     rangeStart: Date;
     rangeEnd: Date;
     onServiceMove: (id: string, newStartDate: string, newTechId: string, oldTechId: string) => void;
+    onServiceResize: (id: string, newStartDate: string, newEndDate: string) => void;
     onServiceClick: (service: Service) => void;
     canEdit?: boolean;
 }
@@ -41,6 +42,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
     rangeStart,
     rangeEnd,
     onServiceMove,
+    onServiceResize,
     onServiceClick,
     canEdit = true
 }) => {
@@ -49,6 +51,67 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
     const isYearView = totalDays > 45;
 
     const [dragState, setDragState] = useState<DragState | null>(null);
+
+    // --- Resize State ---
+    interface ResizeState {
+        service: Service;
+        edge: 'left' | 'right';
+        currentDate: Date | null;
+        techId: string;
+    }
+    const [resizeState, setResizeState] = useState<ResizeState | null>(null);
+
+    const handleResizeStart = (e: React.MouseEvent, service: Service, edge: 'left' | 'right', techId: string) => {
+        e.stopPropagation();
+        e.preventDefault();
+        setResizeState({ service, edge, currentDate: null, techId });
+    };
+
+    useEffect(() => {
+        if (!resizeState) return;
+
+        const handleMouseMove = (e: MouseEvent) => {
+            const element = document.elementFromPoint(e.clientX, e.clientY);
+            const dateStr = element?.closest('[data-date]')?.getAttribute('data-date');
+            if (dateStr) {
+                const date = parseISO(dateStr);
+                setResizeState(prev => prev ? { ...prev, currentDate: date } : null);
+            }
+        };
+
+        const handleMouseUp = () => {
+            setResizeState(prev => {
+                if (prev && prev.currentDate) {
+                    const { service, edge, currentDate } = prev;
+                    let newStart = parseISO(service.startDate);
+                    let newEnd = parseISO(service.endDate);
+
+                    if (edge === 'left') {
+                        newStart = currentDate;
+                        if (newStart > newEnd) {
+                            newStart = newEnd;
+                        }
+                    } else {
+                        newEnd = currentDate;
+                        if (newEnd < newStart) {
+                            newEnd = newStart;
+                        }
+                    }
+
+                    onServiceResize(service.id, format(newStart, 'yyyy-MM-dd'), format(newEnd, 'yyyy-MM-dd'));
+                }
+                return null;
+            });
+        };
+
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [resizeState, onServiceResize]);
 
     const calculateLanes = (techServices: Service[]) => {
         const sorted = [...techServices].sort((a, b) => a.startDate.localeCompare(b.startDate));
@@ -218,6 +281,8 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
 
         const isDragging = dragState?.service.id === service.id;
         const isAnyDragging = dragState !== null;
+        const isResizing = resizeState?.service.id === service.id;
+        const isAnyResizing = resizeState !== null;
 
         const tooltipText = `Cliente: ${service.client}\nOS: ${service.os || 'N/A'}\nDescrição: ${service.description || 'N/A'}\nPeríodo: ${format(parseISO(service.startDate), 'dd/MM/yy')} - ${format(parseISO(service.endDate), 'dd/MM/yy')}`;
 
@@ -240,14 +305,28 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                 ${bgColor} ${textColor} ${paddingY}
                 ${continuesLeft ? 'rounded-l-none border-l-0' : ''}
                 ${continuesRight ? 'rounded-r-none border-r-0' : ''}
-                ${isDragging ? 'opacity-30' : ''} 
-                ${isAnyDragging ? 'pointer-events-none' : ''} 
+                ${isDragging || isResizing ? 'opacity-30' : ''} 
+                ${isAnyDragging || isAnyResizing ? 'pointer-events-none' : ''} 
             `}
                 style={style}
                 title={tooltipText}
             >
                 <div className={`font-bold truncate ${lineLeading} ${clientFontSize}`}>{service.client}</div>
                 <div className={`opacity-80 truncate ${lineLeading} ${osFontSize}`}>{service.os || '-'}</div>
+                {canEdit && !isAnyDragging && !isAnyResizing && (
+                    <>
+                        <div
+                            className="absolute left-0 top-0 bottom-0 w-2 cursor-w-resize z-20 hover:bg-white/20 rounded-l-md"
+                            onMouseDown={(e) => handleResizeStart(e, service, 'left', sourceTechId)}
+                            title="Redimensionar início"
+                        />
+                        <div
+                            className="absolute right-0 top-0 bottom-0 w-2 cursor-e-resize z-20 hover:bg-white/20 rounded-r-md"
+                            onMouseDown={(e) => handleResizeStart(e, service, 'right', sourceTechId)}
+                            title="Redimensionar fim"
+                        />
+                    </>
+                )}
             </div>
         );
     };
@@ -385,6 +464,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                         {days.map((d, idx) => (
                                             <div
                                                 key={idx}
+                                                data-date={format(d, 'yyyy-MM-dd')}
                                                 className={`flex-1 h-full ${dragState ? 'z-40' : 'z-0'} ${cellMinWidth}`}
                                                 onDragOver={handleDragOver}
                                                 onDragEnter={(e) => handleDragEnter(e, tech.id, d)}
@@ -396,6 +476,45 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                     </div>
 
                                     {renderGhostBar(tech.id, rangeStart, rangeEnd, totalDays)}
+
+                                    {/* Resize Ghost */}
+                                    {resizeState && resizeState.techId === tech.id && resizeState.currentDate && (() => {
+                                        const service = resizeState.service;
+                                        const sStart = parseISO(service.startDate);
+                                        const sEnd = parseISO(service.endDate);
+                                        let newStart = sStart;
+                                        let newEnd = sEnd;
+
+                                        if (resizeState.edge === 'left') {
+                                            newStart = resizeState.currentDate;
+                                            if (newStart > newEnd) newStart = newEnd;
+                                        } else {
+                                            newEnd = resizeState.currentDate;
+                                            if (newEnd < newStart) newEnd = newStart;
+                                        }
+
+                                        const rangeStartDay = startOfDay(rangeStart);
+                                        const effectiveStart = max([newStart, rangeStartDay]);
+                                        const effectiveEnd = min([newEnd, startOfDay(rangeEnd)]);
+                                        if (effectiveStart > effectiveEnd) return null;
+
+                                        const offsetDays = differenceInDays(effectiveStart, rangeStartDay);
+                                        const durationDays = differenceInDays(effectiveEnd, effectiveStart) + 1;
+                                        const leftPercent = (offsetDays / totalDays) * 100;
+                                        const widthPercent = (durationDays / totalDays) * 100;
+
+                                        return (
+                                            <div
+                                                key={`${service.id}-resize-ghost`}
+                                                className="absolute top-1 bottom-1 bg-abb-red/10 border-2 border-dashed border-abb-red z-[60] pointer-events-none rounded-lg shadow-xl flex items-center justify-center overflow-hidden transition-all duration-75"
+                                                style={{ left: `calc(${leftPercent}% + 2px)`, width: `calc(${widthPercent}% - 4px)` }}
+                                            >
+                                                <span className="text-[10px] font-bold text-abb-red/80 truncate whitespace-nowrap px-1">
+                                                    {service.client}
+                                                </span>
+                                            </div>
+                                        );
+                                    })()}
 
                                     {techServices.map(service => {
                                         try {
@@ -558,6 +677,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                                     {days.map((d, i) => (
                                                         <div
                                                             key={i}
+                                                            data-date={format(d, 'yyyy-MM-dd')}
                                                             className={`flex-1 h-full ${dragState ? 'z-40' : ''}`}
                                                             onDragOver={handleDragOver}
                                                             onDragEnter={(e) => handleDragEnter(e, tech.id, d)}
@@ -568,6 +688,44 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                                 </div>
 
                                                 {renderGhostBar(tech.id, monthStart, monthEnd, daysInMonth)}
+
+                                                {/* Resize Ghost */}
+                                                {resizeState && resizeState.techId === tech.id && resizeState.currentDate && (() => {
+                                                    const service = resizeState.service;
+                                                    const sStart = parseISO(service.startDate);
+                                                    const sEnd = parseISO(service.endDate);
+                                                    let newStart = sStart;
+                                                    let newEnd = sEnd;
+
+                                                    if (resizeState.edge === 'left') {
+                                                        newStart = resizeState.currentDate;
+                                                        if (newStart > newEnd) newStart = newEnd;
+                                                    } else {
+                                                        newEnd = resizeState.currentDate;
+                                                        if (newEnd < newStart) newEnd = newStart;
+                                                    }
+
+                                                    const effectiveStart = max([newStart, monthStart]);
+                                                    const effectiveEnd = min([newEnd, monthEnd]);
+                                                    if (effectiveStart > effectiveEnd) return null;
+
+                                                    const startDay = getDate(effectiveStart);
+                                                    const duration = differenceInDays(effectiveEnd, effectiveStart) + 1;
+                                                    const leftPercent = ((startDay - 1) / daysInMonth) * 100;
+                                                    const widthPercent = (duration / daysInMonth) * 100;
+
+                                                    return (
+                                                        <div
+                                                            key={`${service.id}-resize-ghost`}
+                                                            className="absolute top-1 bottom-1 bg-abb-red/10 border-2 border-dashed border-abb-red z-[60] pointer-events-none rounded-lg shadow-xl flex items-center justify-center overflow-hidden transition-all duration-75"
+                                                            style={{ left: `calc(${leftPercent}% + 1px)`, width: `calc(${widthPercent}% - 2px)` }}
+                                                        >
+                                                            <span className="text-[10px] font-bold text-abb-red/80 truncate whitespace-nowrap px-1">
+                                                                {service.client}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })()}
 
                                                 {techServices.map(service => {
                                                     try {

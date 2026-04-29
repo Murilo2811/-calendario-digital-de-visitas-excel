@@ -542,6 +542,35 @@ const App: React.FC = () => {
         }));
     };
 
+    const handleServiceResize = (id: string, newStartDate: string, newEndDate: string) => {
+        setServices(prev => prev.map(s => {
+            if (s.id !== id) return s;
+
+            const newStart = parseISO(newStartDate);
+            const newEnd = parseISO(newEndDate);
+            if (!isValid(newStart) || !isValid(newEnd)) return s;
+            if (newEnd < newStart) return s;
+
+            const updatedService: Service = {
+                ...s,
+                startDate: newStartDate,
+                endDate: newEndDate,
+                week: getISOWeek(newStart),
+            };
+
+            // Logic: If confirmed and end date is in the past, sync lastCalibration
+            if (updatedService.status === ServiceStatus.CONFIRMED) {
+                const today = startOfDay(new Date());
+                if (isBefore(newEnd, today)) {
+                    updatedService.lastCalibration = newEndDate;
+                }
+            }
+
+            return updatedService;
+        }));
+        showToast('Duração da atividade atualizada');
+    };
+
     const handleServiceClick = (service: Service) => {
         setEditingService(service);
         setIsModalOpen(true);
@@ -963,6 +992,7 @@ const App: React.FC = () => {
                         services={filteredServices}
                         technicians={visibleTechnicians}
                         onServiceMove={handleServiceMove}
+                        onServiceResize={handleServiceResize}
                         onServiceClick={handleServiceClick}
                         rangeStart={rangeStart}
                         rangeEnd={rangeEnd}
