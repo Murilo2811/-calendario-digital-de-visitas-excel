@@ -150,6 +150,31 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                 </select>
               </div>
 
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>INÍCIO *</label>
+                  <input
+                    type="date"
+                    required
+                    disabled={!canEdit}
+                    className={inputClass}
+                    value={formData.startDate}
+                    onChange={e => handleChange('startDate', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>FIM *</label>
+                  <input
+                    type="date"
+                    required
+                    disabled={!canEdit}
+                    className={inputClass}
+                    value={formData.endDate}
+                    onChange={e => handleChange('endDate', e.target.value)}
+                  />
+                </div>
+              </div>
+
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                 <label className={labelClass}>TÉCNICOS (Selecione múltiplos)</label>
                 <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto">
