@@ -5,6 +5,7 @@ import { Trash2, AlertCircle, Check, ChevronDown } from 'lucide-react';
 import { isFuture } from 'date-fns/isFuture';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
+import { getISOWeek } from 'date-fns/getISOWeek';
 
 interface ServiceGridProps {
     services: Service[];
@@ -185,7 +186,9 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                 <tr key={service.id} className={`${rowBgClass} transition-colors group`}>
 
                     <td className="p-0 h-10 border-b border-slate-100 text-center">
-                        <EditableCell value={service.week} type="number" align="center" onChange={(v) => onUpdate(service.id, 'week', Number(v))} className="font-medium text-slate-500" />
+                        <span className="font-medium text-slate-500 text-xs">
+                            {service.startDate && isValid(parseISO(service.startDate)) ? getISOWeek(parseISO(service.startDate)) : service.week || '-'}
+                        </span>
                     </td>
 
                     <td className="p-0 h-10 border-b border-slate-100">

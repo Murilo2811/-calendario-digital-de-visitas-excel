@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Service, ServiceStatus, Technician, Client } from '../types';
-import { X, PlusCircle, Pencil } from 'lucide-react';
+import { X, PlusCircle, Pencil, Trash2 } from 'lucide-react';
 import { format } from 'date-fns/format';
 
 interface AddServiceModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (service: Omit<Service, 'id'>) => void;
+  onDelete?: (id: string) => void;
   technicians: Technician[];
   clients: Client[];
   serviceToEdit?: Service | null;
@@ -17,6 +18,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   isOpen,
   onClose,
   onSave,
+  onDelete,
   technicians,
   clients,
   serviceToEdit,
@@ -385,22 +387,43 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
           )}
 
 
-          <div className="flex items-center justify-end gap-4 pt-5 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-            >
-              {canEdit ? 'Cancelar' : 'Fechar'}
-            </button>
-            {canEdit && (
+          <div className="flex items-center justify-between pt-5 border-t border-slate-200">
+            {/* Botão Excluir - só aparece ao editar */}
+            {serviceToEdit && canEdit && onDelete && (
               <button
-                type="submit"
-                className="px-6 py-2.5 text-sm font-bold text-white bg-abb-red hover:brightness-110 rounded-lg shadow-md shadow-abb-red/20 transition-all"
+                type="button"
+                onClick={() => {
+                  if (window.confirm(`Excluir a atividade de "${serviceToEdit.client}"?`)) {
+                    onDelete(serviceToEdit.id);
+                    onClose();
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 border border-red-200 rounded-lg transition-colors"
               >
-                {serviceToEdit ? 'Salvar Alterações' : 'Criar Atividade'}
+                <Trash2 size={16} />
+                Excluir
               </button>
             )}
+            {/* Spacer quando não há botão de excluir */}
+            {!(serviceToEdit && canEdit && onDelete) && <div />}
+
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+              >
+                {canEdit ? 'Cancelar' : 'Fechar'}
+              </button>
+              {canEdit && (
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 text-sm font-bold text-white bg-abb-red hover:brightness-110 rounded-lg shadow-md shadow-abb-red/20 transition-all"
+                >
+                  {serviceToEdit ? 'Salvar Alterações' : 'Criar Atividade'}
+                </button>
+              )}
+            </div>
           </div>
         </form>
       </div>

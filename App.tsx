@@ -45,6 +45,8 @@ import {
     Search,
     Building2,
     ChevronDown,
+    ChevronLeft,
+    ChevronRight,
     Layers,
     HelpCircle,
     Zap,
@@ -54,7 +56,8 @@ import {
     Loader2,
     FilePlus2,
     Settings,
-    LogOut
+    LogOut,
+    Minus
 } from 'lucide-react';
 
 // Helper to sort technicians: Internal first, then Alphabetical by Name
@@ -90,6 +93,7 @@ const App: React.FC = () => {
     const [isLegendOpen, setIsLegendOpen] = useState(false);
     const legendRef = useRef<HTMLDivElement>(null);
     const [isGrouped, setIsGrouped] = useState(false);
+    const [customDaysOffset, setCustomDaysOffset] = useState(0);
 
     // Excel Connection State
     const [excelHandle, setExcelHandle] = useState<FileSystemFileHandle | null>(null);
@@ -314,16 +318,21 @@ const App: React.FC = () => {
 
     // --- Date Logic ---
     const { rangeStart, rangeEnd } = useMemo(() => {
+        let start: Date;
+        let end: Date;
         if (selectedMonth === -1) {
-            const start = startOfYear(new Date(selectedYear, 0, 1));
-            const end = endOfYear(new Date(selectedYear, 0, 1));
-            return { rangeStart: start, rangeEnd: end };
+            start = startOfYear(new Date(selectedYear, 0, 1));
+            end = endOfYear(new Date(selectedYear, 0, 1));
         } else {
-            const start = startOfMonth(new Date(selectedYear, selectedMonth, 1));
-            const end = endOfMonth(new Date(selectedYear, selectedMonth, 1));
-            return { rangeStart: start, rangeEnd: end };
+            start = startOfMonth(new Date(selectedYear, selectedMonth, 1));
+            end = endOfMonth(new Date(selectedYear, selectedMonth, 1));
         }
-    }, [selectedYear, selectedMonth]);
+        // Aplica offset de dias customizado
+        if (customDaysOffset !== 0) {
+            end = addDays(end, customDaysOffset);
+        }
+        return { rangeStart: start, rangeEnd: end };
+    }, [selectedYear, selectedMonth, customDaysOffset]);
 
     const servicesForSelectedYear = useMemo(() => {
         const yearStart = startOfYear(new Date(selectedYear, 0, 1));
@@ -391,6 +400,12 @@ const App: React.FC = () => {
     // --- CRUD Operations ---
     const handleSaveService = (serviceData: Omit<Service, 'id'>) => {
         const newServiceData = { ...serviceData };
+
+        // Sempre auto-recalcula a semana a partir da startDate se válida
+        const parsedStart = parseISO(newServiceData.startDate);
+        if (isValid(parsedStart)) {
+            newServiceData.week = getISOWeek(parsedStart);
+        }
 
         // Auto-update Last Calibration if Confirmed and in Past
         if (newServiceData.status === ServiceStatus.CONFIRMED) {
@@ -668,6 +683,7 @@ const App: React.FC = () => {
                 isOpen={isModalOpen}
                 onClose={handleCloseModal}
                 onSave={handleSaveService}
+                onDelete={deleteService}
                 technicians={technicians}
                 clients={clients}
                 serviceToEdit={editingService}
@@ -773,6 +789,35 @@ const App: React.FC = () => {
                                 </select>
                             </div>
                         </div>
+
+                        {/* Controles +/- Dias (só no cronograma) */}
+                        {view === 'timeline' && (
+                            <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 gap-1">
+                                <button
+                                    onClick={() => setCustomDaysOffset(prev => Math.max(prev - 7, -28))}
+                                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-white hover:text-abb-red rounded-md transition-all"
+                                    title="Reduzir 7 dias"
+                                >
+                                    <Minus size={14} /> 7d
+                                </button>
+                                {customDaysOffset !== 0 && (
+                                    <button
+                                        onClick={() => setCustomDaysOffset(0)}
+                                        className="px-2 py-1.5 text-[10px] font-bold text-amber-600 hover:bg-amber-50 rounded-md transition-all"
+                                        title="Resetar para período padrão"
+                                    >
+                                        {customDaysOffset > 0 ? `+${customDaysOffset}d` : `${customDaysOffset}d`}
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => setCustomDaysOffset(prev => Math.min(prev + 7, 90))}
+                                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-white hover:text-abb-red rounded-md transition-all"
+                                    title="Adicionar 7 dias"
+                                >
+                                    <Plus size={14} /> 7d
+                                </button>
+                            </div>
+                        )}
 
                         {/* View Toggle */}
                         <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">

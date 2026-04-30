@@ -6,6 +6,9 @@
 
 import { Service, Technician, Client, User, ServiceStatus, TechType, UserRole } from './types';
 import * as XLSX from 'xlsx';
+import { isValid } from 'date-fns/isValid';
+import { parseISO } from 'date-fns/parseISO';
+import { getISOWeek } from 'date-fns/getISOWeek';
 
 // Tipo para o handle do arquivo (navegador)
 type FileHandle = FileSystemFileHandle;
@@ -264,9 +267,19 @@ export const readServicesFromExcel = async (handle: FileHandle, technicians: Tec
       .map(name => technicians.find(t => t.name === name || t.fullName === name)?.id)
       .filter((id): id is string => !!id);
 
+    const startDateStr = parseExcelDate(row['Inicio'] || row['Data Inicio']);
+    const endDateStr = parseExcelDate(row['Fim'] || row['Data Fim']);
+    
+    // Auto-calcula semana correta da startDate importada
+    let weekNumber = Number(row['Semana'] || row['SEM.'] || 0);
+    const parsedStart = parseISO(startDateStr);
+    if (isValid(parsedStart)) {
+      weekNumber = getISOWeek(parsedStart);
+    }
+
     return {
       id: String(row['ID'] || `svc-imported-${index}-${Date.now()}`),
-      week: Number(row['Semana'] || row['SEM.'] || 0),
+      week: weekNumber,
       client: String(row['Cliente'] || row['CLIENT'] || ''),
       manager: String(row['Gerente'] || row['Manager'] || ''),
       os: String(row['OS'] || ''),
@@ -274,8 +287,8 @@ export const readServicesFromExcel = async (handle: FileHandle, technicians: Tec
       hp: Number(row['HP'] || 0),
       ht: Number(row['HT'] || 0),
       hv: Number(row['HV'] || 0),
-      startDate: parseExcelDate(row['Inicio'] || row['Data Inicio']),
-      endDate: parseExcelDate(row['Fim'] || row['Data Fim']),
+      startDate: startDateStr,
+      endDate: endDateStr,
       technicianIds: technicianIds.length > 0 ? technicianIds : [],
       status: parseStatus(String(row['Status'] || 'Cliente Previsto')),
       lastCalibration: parseExcelDate(row['Ultima Calibracao'] || row['LAST.CAL']),

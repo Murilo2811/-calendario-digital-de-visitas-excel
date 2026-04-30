@@ -41,7 +41,7 @@ export const validateUser = async (
  * Cria usuário admin padrão
  */
 export const createDefaultAdmin = async (): Promise<User> => {
-    const passwordHash = await hashPassword('1612goodBme');
+    const passwordHash = await hashPassword('1612good2Bme');
 
     return {
         id: 'user-admin-001',
