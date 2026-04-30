@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Service, ServiceStatus, Technician, Client } from '../types';
-import { calculateCalibration } from '../utils';
+import { calculateCalibration, calculateServiceForecast } from '../utils';
 import { Trash2, AlertCircle, Check, ChevronDown } from 'lucide-react';
 import { isFuture } from 'date-fns/isFuture';
 import { isValid } from 'date-fns/isValid';
@@ -162,9 +162,10 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
 
     const renderRows = (list: Service[]) => {
         return list.map((service) => {
-            const { nextCalText, forecastText, forecastDate } = calculateCalibration(service.lastCalibration, service.period);
+            const { nextCalText } = calculateCalibration(service.lastCalibration, service.period);
+            const { forecastText, forecastStartDate } = calculateServiceForecast(service.startDate, service.endDate, service.period);
             const statusClass = getStatusColor(service.status);
-            const isFutureForecast = forecastDate ? isFuture(forecastDate) : false;
+            const isFutureForecast = forecastStartDate ? isFuture(forecastStartDate) : false;
             const forecastColor = isFutureForecast ? 'text-abb-red font-bold' : 'text-slate-600';
 
             // Validation for Dates

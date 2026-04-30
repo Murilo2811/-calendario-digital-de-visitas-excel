@@ -20,21 +20,42 @@ export const calculateDuration = (start: string, end: string): number => {
  */
 export const calculateCalibration = (lastCal?: string, period?: number) => {
     if (!lastCal || !period || period <= 0) {
-        return { nextCalText: '***', forecastText: '***', forecastDate: null };
+        return { nextCalText: '***', forecastDate: null };
     }
     
     const lastDate = parseISO(lastCal);
-    if (!isValid(lastDate)) return { nextCalText: '-', forecastText: '-', forecastDate: null };
+    if (!isValid(lastDate)) return { nextCalText: '-', forecastDate: null };
 
     const nextDate = addMonths(lastDate, period);
     
     // "Proxima calibração": Month-YY (e.g. July-25)
     const nextCalText = format(nextDate, 'MMMM-yy', { locale: ptBR }); 
 
-    // "Previsão": d-MMM-yy (e.g. 19-Jul-25)
-    const forecastText = format(nextDate, 'd-MMM-yy', { locale: ptBR });
+    return { nextCalText, forecastDate: nextDate };
+};
 
-    return { nextCalText, forecastText, forecastDate: nextDate };
+/**
+ * Calculates the service forecast dates based on startDate, endDate + period (months)
+ * Returns a string in the format "de [date] até [date]"
+ */
+export const calculateServiceForecast = (startDate?: string, endDate?: string, period?: number) => {
+    if (!startDate || !endDate || !period || period <= 0) {
+        return { forecastText: '***', forecastStartDate: null, forecastEndDate: null };
+    }
+    
+    const start = parseISO(startDate);
+    const end = parseISO(endDate);
+    
+    if (!isValid(start) || !isValid(end)) {
+        return { forecastText: '-', forecastStartDate: null, forecastEndDate: null };
+    }
+    
+    const forecastStart = addMonths(start, period);
+    const forecastEnd = addMonths(end, period);
+    
+    const forecastText = `de ${format(forecastStart, 'dd/MM/yyyy', { locale: ptBR })} até ${format(forecastEnd, 'dd/MM/yyyy', { locale: ptBR })}`;
+    
+    return { forecastText, forecastStartDate: forecastStart, forecastEndDate: forecastEnd };
 };
 
 /**
@@ -60,7 +81,8 @@ export const exportToExcel = (services: Service[], technicians: Technician[]) =>
       .filter(Boolean)
       .join(', ');
 
-    const { nextCalText, forecastText } = calculateCalibration(s.lastCalibration, s.period);
+    const { nextCalText } = calculateCalibration(s.lastCalibration, s.period);
+    const { forecastText } = calculateServiceForecast(s.startDate, s.endDate, s.period);
 
     return {
       'SEM.': s.week,
@@ -101,7 +123,7 @@ export const exportToExcel = (services: Service[], technicians: Technician[]) =>
     { wch: 8 },  // PERIOD
     { wch: 18 }, // Prox Cal
     { wch: 22 }, // Status
-    { wch: 15 }, // Previsao
+    { wch: 35 }, // Previsao
   ];
   worksheet['!cols'] = wscols;
 
