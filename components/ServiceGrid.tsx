@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Service, ServiceStatus, Technician, Client } from '../types';
-import { calculateCalibration, calculateServiceForecast } from '../utils';
+import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getClientConflicts } from '../utils';
 import { Trash2, AlertCircle, Check, ChevronDown } from 'lucide-react';
 import { isFuture } from 'date-fns/isFuture';
 import { isValid } from 'date-fns/isValid';
@@ -182,6 +182,10 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                 ? 'bg-red-50/80 hover:bg-red-100'
                 : 'hover:bg-abb-red/5';
 
+            const clientConflicts = getClientConflicts(services, service.client, service.startDate, service.endDate, service.id);
+            const hasClientOverlap = clientConflicts.length > 0;
+            const calStatus = getCalibrationStatus(service);
+
             return (
                 <tr key={service.id} className={`${rowBgClass} transition-colors group`}>
 
@@ -191,37 +195,73 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                         </span>
                     </td>
 
+                    <td className="p-0 h-10 border-b border-slate-100 relative">
+                        <div className="flex items-center h-full">
+                            {hasClientOverlap && (
+                                <span className="pl-1 text-amber-500 font-bold" title={`Sobreposição: ${clientConflicts.length} outra(s) visita(s) para ${service.client} neste mesmo intervalo de datas!`}>
+                                    ⚠️
+                                </span>
+                            )}
+                            <EditableCell
+                                value={service.client}
+                                list="client-options"
+                                onChange={(v) => onUpdate(service.id, 'client', v)}
+                                className="font-semibold text-slate-800"
+                            />
+                        </div>
+                    </td>
+
                     <td className="p-0 h-10 border-b border-slate-100">
                         <EditableCell
-                            value={service.client}
-                            list="client-options"
-                            onChange={(v) => onUpdate(service.id, 'client', v)}
-                            className="font-semibold text-slate-800"
+                            value={service.manager}
+                            onChange={(v) => onUpdate(service.id, 'manager', v)}
                         />
                     </td>
 
                     <td className="p-0 h-10 border-b border-slate-100">
-                        <EditableCell value={service.manager} align="center" onChange={(v) => onUpdate(service.id, 'manager', v)} className="uppercase text-xs font-medium text-slate-500" />
+                        <EditableCell
+                            value={service.os}
+                            onChange={(v) => onUpdate(service.id, 'os', v)}
+                            className="font-mono text-slate-600 font-medium"
+                        />
                     </td>
 
                     <td className="p-0 h-10 border-b border-slate-100">
-                        <EditableCell value={service.os} onChange={(v) => onUpdate(service.id, 'os', v)} className="font-mono text-xs text-slate-600" />
-                    </td>
-
-                    <td className="p-0 h-10 border-b border-slate-100">
-                        <EditableCell value={service.description} onChange={(v) => onUpdate(service.id, 'description', v)} className="text-slate-600" />
-                    </td>
-
-                    <td className="p-0 h-10 border-b border-slate-100 text-center">
-                        <EditableCell value={service.hp} type="number" align="center" onChange={(v) => onUpdate(service.id, 'hp', Number(v))} className="text-slate-500" />
+                        <EditableCell
+                            value={service.description}
+                            onChange={(v) => onUpdate(service.id, 'description', v)}
+                            className="text-slate-600"
+                        />
                     </td>
 
                     <td className="p-0 h-10 border-b border-slate-100 text-center">
-                        <EditableCell value={service.ht} type="number" align="center" onChange={(v) => onUpdate(service.id, 'ht', Number(v))} className="text-slate-500" />
+                        <EditableCell
+                            type="number"
+                            value={service.hp}
+                            onChange={(v) => onUpdate(service.id, 'hp', v)}
+                            align="center"
+                            className="text-slate-500"
+                        />
                     </td>
 
                     <td className="p-0 h-10 border-b border-slate-100 text-center">
-                        <EditableCell value={service.hv} type="number" align="center" onChange={(v) => onUpdate(service.id, 'hv', Number(v))} className="text-slate-500" />
+                        <EditableCell
+                            type="number"
+                            value={service.ht}
+                            onChange={(v) => onUpdate(service.id, 'ht', v)}
+                            align="center"
+                            className="text-slate-500"
+                        />
+                    </td>
+
+                    <td className="p-0 h-10 border-b border-slate-100 text-center">
+                        <EditableCell
+                            type="number"
+                            value={service.hv}
+                            onChange={(v) => onUpdate(service.id, 'hv', v)}
+                            align="center"
+                            className="text-slate-500"
+                        />
                     </td>
 
                     {/* Start Date Column */}
@@ -289,7 +329,19 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                     </td>
 
                     <td className="px-2 py-1 border-b border-slate-100 text-center overflow-hidden">
-                        <span className="text-xs font-medium text-slate-600 truncate">{nextCalText}</span>
+                        <div className="flex items-center justify-center gap-1">
+                            {calStatus.level === 'EXPIRED' && (
+                                <span className="px-1 py-0.5 bg-red-100 text-red-700 font-bold text-[9px] rounded" title={`Vencida (${calStatus.targetDateText})`}>
+                                    VENC
+                                </span>
+                            )}
+                            {calStatus.level === 'EXPIRING_SOON' && (
+                                <span className="px-1 py-0.5 bg-amber-100 text-amber-800 font-bold text-[9px] rounded" title={`Vence em ${calStatus.daysRemaining} dias`}>
+                                    {calStatus.daysRemaining}d
+                                </span>
+                            )}
+                            <span className="text-xs font-medium text-slate-600 truncate">{nextCalText}</span>
+                        </div>
                     </td>
 
                     <td className="px-2 py-1 border-b border-slate-100 text-center">

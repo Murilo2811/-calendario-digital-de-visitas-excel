@@ -5,8 +5,221 @@ import { eachDayOfInterval } from 'date-fns/eachDayOfInterval';
 import { format } from 'date-fns/format';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
+import { startOfDay } from 'date-fns/startOfDay';
+import { isBefore } from 'date-fns/isBefore';
+import { addDays } from 'date-fns/addDays';
+import { getISOWeek } from 'date-fns/getISOWeek';
 import { ptBR } from 'date-fns/locale/pt-BR';
 import * as XLSX from 'xlsx';
+
+/**
+ * Checks if two date ranges [s1, e1] and [s2, e2] overlap (inclusive).
+ */
+export const areDatesOverlapping = (
+  start1Str: string,
+  end1Str: string,
+  start2Str: string,
+  end2Str: string
+): boolean => {
+  try {
+    const s1 = parseISO(start1Str);
+    const e1 = parseISO(end1Str);
+    const s2 = parseISO(start2Str);
+    const e2 = parseISO(end2Str);
+
+    if (!isValid(s1) || !isValid(e1) || !isValid(s2) || !isValid(e2)) {
+      return false;
+    }
+
+    const range1Start = startOfDay(s1 <= e1 ? s1 : e1);
+    const range1End = startOfDay(s1 <= e1 ? e1 : s1);
+    const range2Start = startOfDay(s2 <= e2 ? s2 : e2);
+    const range2End = startOfDay(s2 <= e2 ? e2 : s2);
+
+    return range1Start <= range2End && range1End >= range2Start;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Returns all services assigned to a technician that overlap with the specified date range.
+ */
+export const getTechnicianConflicts = (
+  services: Service[],
+  techId: string,
+  startDate: string,
+  endDate: string,
+  excludeServiceId?: string
+): Service[] => {
+  if (!techId || !startDate || !endDate) return [];
+
+  return services.filter(s => {
+    if (excludeServiceId && s.id === excludeServiceId) return false;
+    if (!s.technicianIds || !s.technicianIds.includes(techId)) return false;
+    return areDatesOverlapping(startDate, endDate, s.startDate, s.endDate);
+  });
+};
+
+/**
+ * Returns all services for the same client that overlap with the specified date range.
+ */
+export const getClientConflicts = (
+  services: Service[],
+  clientName: string,
+  startDate: string,
+  endDate: string,
+  excludeServiceId?: string
+): Service[] => {
+  if (!clientName || !startDate || !endDate) return [];
+  const normalizedClient = clientName.trim().toLowerCase();
+
+  return services.filter(s => {
+    if (excludeServiceId && s.id === excludeServiceId) return false;
+    if (!s.client || s.client.trim().toLowerCase() !== normalizedClient) return false;
+    return areDatesOverlapping(startDate, endDate, s.startDate, s.endDate);
+  });
+};
+
+/**
+ * Finds all technicians who are free (no conflicting services) during the given date range.
+ */
+export const findAvailableTechnicians = (
+  technicians: Technician[],
+  services: Service[],
+  startDate: string,
+  endDate: string,
+  excludeServiceId?: string
+): Technician[] => {
+  if (!technicians.length || !startDate || !endDate) return [];
+
+  return technicians.filter(tech => {
+    const conflicts = getTechnicianConflicts(services, tech.id, startDate, endDate, excludeServiceId);
+    return conflicts.length === 0;
+  });
+};
+
+export type CalibrationAlertLevel = 'EXPIRED' | 'EXPIRING_SOON' | 'OK' | 'NONE';
+
+export interface CalibrationStatusInfo {
+  level: CalibrationAlertLevel;
+  daysRemaining: number | null;
+  targetDate: Date | null;
+  targetDateText: string;
+  isForecast: boolean;
+}
+
+/**
+ * Analyzes the calibration expiration status of a service.
+ */
+export const getCalibrationStatus = (service: Service): CalibrationStatusInfo => {
+  if (!service.period || service.period <= 0) {
+    return {
+      level: 'NONE',
+      daysRemaining: null,
+      targetDate: null,
+      targetDateText: '-',
+      isForecast: false
+    };
+  }
+
+  const baseDateStr = service.lastCalibration || service.endDate || service.startDate;
+  if (!baseDateStr) {
+    return {
+      level: 'NONE',
+      daysRemaining: null,
+      targetDate: null,
+      targetDateText: '-',
+      isForecast: false
+    };
+  }
+
+  const baseDate = parseISO(baseDateStr);
+  if (!isValid(baseDate)) {
+    return {
+      level: 'NONE',
+      daysRemaining: null,
+      targetDate: null,
+      targetDateText: '-',
+      isForecast: false
+    };
+  }
+
+  const nextCalDate = addMonths(baseDate, service.period);
+  const today = startOfDay(new Date());
+  const diffDays = differenceInDays(nextCalDate, today);
+  const targetDateText = format(nextCalDate, 'dd/MM/yyyy', { locale: ptBR });
+
+  if (diffDays < 0) {
+    return {
+      level: 'EXPIRED',
+      daysRemaining: diffDays,
+      targetDate: nextCalDate,
+      targetDateText,
+      isForecast: true
+    };
+  } else if (diffDays <= 30) {
+    return {
+      level: 'EXPIRING_SOON',
+      daysRemaining: diffDays,
+      targetDate: nextCalDate,
+      targetDateText,
+      isForecast: true
+    };
+  }
+
+  return {
+    level: 'OK',
+    daysRemaining: diffDays,
+    targetDate: nextCalDate,
+    targetDateText,
+    isForecast: true
+  };
+};
+
+/**
+ * Creates a future projected service (Cliente Previsto) based on a completed/confirmed service.
+ */
+export const createNextCalibrationService = (
+  baseService: Service,
+  availableTechs: Technician[]
+): Service => {
+  const period = baseService.period || 6;
+  const start = parseISO(baseService.startDate);
+  const end = parseISO(baseService.endDate);
+
+  const newStart = isValid(start) ? addMonths(start, period) : new Date();
+  const newEnd = isValid(end) ? addMonths(end, period) : newStart;
+
+  const startDateStr = format(newStart, 'yyyy-MM-dd');
+  const endDateStr = format(newEnd, 'yyyy-MM-dd');
+  const week = getISOWeek(newStart);
+
+  // Preserve tech if available, otherwise take first available or fallback to base
+  const preferredTechId = baseService.technicianIds?.[0];
+  const isPreferredAvailable = availableTechs.some(t => t.id === preferredTechId);
+  const chosenTechIds = isPreferredAvailable && preferredTechId
+    ? [preferredTechId]
+    : (availableTechs.length > 0 ? [availableTechs[0].id] : (baseService.technicianIds || []));
+
+  return {
+    id: `svc-forecast-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    week,
+    client: baseService.client,
+    manager: baseService.manager || '',
+    os: '', // OS em branco para agendamento
+    description: `Calibração Prevista (${period}m) - Ref. OS ${baseService.os || 'Anterior'}`,
+    hp: baseService.hp || 0,
+    ht: baseService.ht || 0,
+    hv: baseService.hv || 0,
+    startDate: startDateStr,
+    endDate: endDateStr,
+    technicianIds: chosenTechIds,
+    status: ServiceStatus.PREDICTED,
+    period: baseService.period,
+    lastCalibration: baseService.endDate || baseService.startDate
+  };
+};
 
 /**
  * Calculates the number of days a service spans.

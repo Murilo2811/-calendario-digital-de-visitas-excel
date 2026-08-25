@@ -11,18 +11,32 @@ import { HelpModal } from './components/HelpModal';
 import { ConfirmDisconnectModal } from './components/ConfirmDisconnectModal';
 import { LoginPage } from './components/LoginPage';
 import { SettingsModal } from './components/SettingsModal';
+import { CalibrationAlertsModal } from './components/CalibrationAlertsModal';
 import { createDefaultAdmin, canEdit, canManage, canExport } from './authService';
-import { calculateDuration, exportToExcel } from './utils';
+import {
+    calculateDuration,
+    exportToExcel,
+    getTechnicianConflicts,
+    getClientConflicts,
+    findAvailableTechnicians,
+    getCalibrationStatus,
+    createNextCalibrationService
+} from './utils';
 import {
     openExcelFile,
     createNewExcelFile,
     readAllFromExcel,
     saveAllToExcel,
     isFileSystemAccessSupported,
+    checkNetworkServerStatus,
+    loadFromNetworkServer,
+    saveToNetworkServer,
 } from './excelService';
 // FIX: Switched to deep imports for date-fns to resolve module loading errors.
 // FIX: Changed date-fns imports to named exports from submodules to support date-fns v3.
 import { addDays } from 'date-fns/addDays';
+import { addMonths } from 'date-fns/addMonths';
+import { differenceInDays } from 'date-fns/differenceInDays';
 import { endOfMonth } from 'date-fns/endOfMonth';
 import { endOfYear } from 'date-fns/endOfYear';
 import { format } from 'date-fns/format';
@@ -57,7 +71,9 @@ import {
     FilePlus2,
     Settings,
     LogOut,
-    Minus
+    Minus,
+    Bell,
+    AlertTriangle
 } from 'lucide-react';
 
 // Helper to sort technicians: Internal first, then Alphabetical by Name
@@ -81,6 +97,7 @@ const App: React.FC = () => {
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
     const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
     const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false);
+    const [isCalibrationAlertsModalOpen, setIsCalibrationAlertsModalOpen] = useState(false);
     const [editingService, setEditingService] = useState<Service | null>(null);
 
     const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
@@ -95,14 +112,55 @@ const App: React.FC = () => {
     const [isGrouped, setIsGrouped] = useState(false);
     const [customDaysOffset, setCustomDaysOffset] = useState(0);
 
+    // Contagem de alertas de calibração
+    const calibrationAlertsSummary = useMemo(() => {
+        let expired = 0;
+        let expiringSoon = 0;
+        services.forEach(s => {
+            const st = getCalibrationStatus(s);
+            if (st.level === 'EXPIRED') expired++;
+            else if (st.level === 'EXPIRING_SOON') expiringSoon++;
+        });
+        return { expired, expiringSoon, totalAlerts: expired + expiringSoon };
+    }, [services]);
+
     // Excel Connection State
     const [excelHandle, setExcelHandle] = useState<FileSystemFileHandle | null>(null);
     const [isExcelConnected, setIsExcelConnected] = useState(false);
     const [isExcelLoading, setIsExcelLoading] = useState(false);
     const [excelFileName, setExcelFileName] = useState<string>('');
+    const [isNetworkServer, setIsNetworkServer] = useState(false);
 
     // Toast State
     const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+
+    const showToast = useCallback((message: string) => {
+        setToast({ show: true, message });
+        setTimeout(() => {
+            setToast(prev => ({ ...prev, show: false }));
+        }, 3000);
+    }, []);
+
+    const legendItems = [
+        { color: 'bg-slate-400', label: ServiceStatus.TRAINING_FIELD },
+        { color: 'bg-yellow-400', label: ServiceStatus.PREDICTED },
+        { color: 'bg-orange-400', label: ServiceStatus.WITH_ORDER },
+        { color: 'bg-green-600', label: ServiceStatus.CONFIRMED },
+        { color: 'bg-purple-500', label: ServiceStatus.TRAINING },
+        { color: 'bg-blue-500', label: ServiceStatus.VACATION },
+        { color: 'bg-cyan-400', label: ServiceStatus.NEGOTIATION },
+        { color: 'bg-slate-800', label: ServiceStatus.HOLIDAY },
+    ];
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (legendRef.current && !legendRef.current.contains(event.target as Node)) {
+                setIsLegendOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, [legendRef]);
 
     // Clock State
     const [currentDateTime, setCurrentDateTime] = useState(new Date());
@@ -126,55 +184,64 @@ const App: React.FC = () => {
         localStorage.setItem('appSettings', JSON.stringify(appSettings));
     }, [appSettings]);
 
-    // Show reconnect prompt on mount
+    // 1. Auto-detecção do Micro-servidor de Rede Local
     useEffect(() => {
-        if (appSettings.autoReconnectPrompt && appSettings.lastExcelFileName && !isExcelConnected && !currentUser) {
-            const shouldReconnect = window.confirm(
-                `Deseja reconectar ao arquivo "${appSettings.lastExcelFileName}"?\n\nClique em OK e selecione o arquivo.`
-            );
-            if (shouldReconnect) {
-                handleConnectExcel();
+        const autoConnectNetworkServer = async () => {
+            try {
+                const status = await checkNetworkServerStatus();
+                if (status && status.running) {
+                    setIsNetworkServer(true);
+                    setIsExcelLoading(true);
+
+                    const data = await loadFromNetworkServer();
+                    if (data) {
+                        if (data.technicians.length > 0) setTechnicians(sortTechnicians(data.technicians));
+                        if (data.clients.length > 0) setClients(data.clients);
+                        if (data.services.length > 0) setServices(data.services);
+
+                        if (data.users.length > 0) {
+                            setUsers(data.users);
+                        } else {
+                            const defaultAdmin = await createDefaultAdmin();
+                            setUsers([defaultAdmin]);
+                            await saveToNetworkServer(data.services, data.technicians, data.clients, [defaultAdmin]);
+                        }
+
+                        setExcelFileName(data.fileName || 'Calendario_Digital_Base.xlsx');
+                        setIsExcelConnected(true);
+                        showToast('Conectado à planilha central da rede!');
+                    } else {
+                        // Se o arquivo ainda não existe na rede, cria a planilha inicial automaticamente
+                        const defaultAdmin = await createDefaultAdmin();
+                        setUsers([defaultAdmin]);
+                        await saveToNetworkServer(INITIAL_SERVICES, sortTechnicians(TECHNICIANS), INITIAL_CLIENTS, [defaultAdmin]);
+                        setExcelFileName('Calendario_Digital_Base.xlsx');
+                        setIsExcelConnected(true);
+                        showToast('Planilha central criada na rede!');
+                    }
+                    setIsExcelLoading(false);
+                    return;
+                }
+            } catch (err) {
+                console.log('Modo navegador avulso (sem micro-servidor local de rede)');
+            } finally {
+                setIsExcelLoading(false);
             }
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
 
-    // Clock update disabled to prevent re-render every second that causes edit loss
-    // TODO: Move clock to a separate component to avoid full App re-render
-    // useEffect(() => {
-    //     const timer = setInterval(() => {
-    //         setCurrentDateTime(new Date());
-    //     }, 1000);
-    //     return () => clearInterval(timer);
-    // }, []);
-
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (legendRef.current && !legendRef.current.contains(event.target as Node)) {
-                setIsLegendOpen(false);
+            // Fallback para navegador comum (File System Access)
+            if (appSettings.autoReconnectPrompt && appSettings.lastExcelFileName && !isExcelConnected && !currentUser) {
+                const shouldReconnect = window.confirm(
+                    `Deseja reconectar ao arquivo "${appSettings.lastExcelFileName}"?\n\nClique em OK e selecione o arquivo.`
+                );
+                if (shouldReconnect) {
+                    handleConnectExcel();
+                }
             }
         };
-        document.addEventListener("mousedown", handleClickOutside);
-        return () => document.removeEventListener("mousedown", handleClickOutside);
-    }, [legendRef]);
 
-    const legendItems = [
-        { color: 'bg-slate-400', label: ServiceStatus.TRAINING_FIELD },
-        { color: 'bg-yellow-400', label: ServiceStatus.PREDICTED },
-        { color: 'bg-orange-400', label: ServiceStatus.WITH_ORDER },
-        { color: 'bg-green-600', label: ServiceStatus.CONFIRMED },
-        { color: 'bg-purple-500', label: ServiceStatus.TRAINING },
-        { color: 'bg-blue-500', label: ServiceStatus.VACATION },
-        { color: 'bg-cyan-400', label: ServiceStatus.NEGOTIATION },
-        { color: 'bg-slate-800', label: ServiceStatus.HOLIDAY },
-    ];
-
-    const showToast = (message: string) => {
-        setToast({ show: true, message });
-        setTimeout(() => {
-            setToast(prev => ({ ...prev, show: false }));
-        }, 3000);
-    };
+        autoConnectNetworkServer();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // --- Excel Functions ---
     const saveToExcelIfConnected = useCallback(async (
@@ -183,7 +250,13 @@ const App: React.FC = () => {
         newClients: Client[],
         newUsers: User[]
     ) => {
-        if (excelHandle && isExcelConnected) {
+        if (isNetworkServer) {
+            try {
+                await saveToNetworkServer(newServices, newTechnicians, newClients, newUsers);
+            } catch (error) {
+                console.error('Erro ao salvar no Excel da rede:', error);
+            }
+        } else if (excelHandle && isExcelConnected) {
             try {
                 await saveAllToExcel(excelHandle, newServices, newTechnicians, newClients, newUsers);
             } catch (error) {
@@ -191,7 +264,7 @@ const App: React.FC = () => {
                 showToast('Erro ao salvar no Excel!');
             }
         }
-    }, [excelHandle, isExcelConnected]);
+    }, [isNetworkServer, excelHandle, isExcelConnected]);
 
     const handleConnectExcel = async () => {
         if (!isFileSystemAccessSupported()) {
@@ -416,17 +489,65 @@ const App: React.FC = () => {
             }
         }
 
+        let createdForecast: Service | null = null;
+
+        // Se for Confirmado com periodicidade de calibração (>0), verificar se precisa gerar próxima previsão automática
+        if (newServiceData.status === ServiceStatus.CONFIRMED && newServiceData.period && newServiceData.period > 0) {
+            const start = parseISO(newServiceData.startDate);
+            if (isValid(start)) {
+                const projectedStart = addMonths(start, newServiceData.period);
+                const projectedStartStr = format(projectedStart, 'yyyy-MM');
+
+                // Checa se já existe alguma previsão futura para este cliente no mesmo período
+                const clientNameNormalized = newServiceData.client.trim().toLowerCase();
+                const existingForecast = services.find(s => {
+                    if (editingService && s.id === editingService.id) return false;
+                    if (s.client.trim().toLowerCase() !== clientNameNormalized) return false;
+                    if (s.status !== ServiceStatus.PREDICTED) return false;
+                    return s.startDate.startsWith(projectedStartStr);
+                });
+
+                if (!existingForecast) {
+                    const tempBaseService: Service = {
+                        ...newServiceData,
+                        id: editingService ? editingService.id : 'temp-id'
+                    };
+                    const freeTechs = findAvailableTechnicians(
+                        technicians,
+                        services,
+                        format(projectedStart, 'yyyy-MM-dd'),
+                        format(addMonths(parseISO(newServiceData.endDate) || start, newServiceData.period), 'yyyy-MM-dd')
+                    );
+                    createdForecast = createNextCalibrationService(tempBaseService, freeTechs);
+                }
+            }
+        }
+
         if (editingService) {
-            setServices(prev => prev.map(s => s.id === editingService.id ? { ...s, ...newServiceData } : s));
+            setServices(prev => {
+                const updated = prev.map(s => s.id === editingService.id ? { ...s, ...newServiceData } : s);
+                return createdForecast ? [...updated, createdForecast] : updated;
+            });
             setEditingService(null);
-            showToast('Atividade atualizada com sucesso!');
+            if (createdForecast) {
+                showToast(`Atividade atualizada e próxima calibração (${newServiceData.period}m) agendada como Prevista!`);
+            } else {
+                showToast('Atividade atualizada com sucesso!');
+            }
         } else {
             const newService: Service = {
                 ...newServiceData,
                 id: `svc-${Date.now()}`,
             };
-            setServices(prev => [...prev, newService]);
-            showToast('Atividade criada com sucesso!');
+            setServices(prev => {
+                const updated = [...prev, newService];
+                return createdForecast ? [...updated, createdForecast] : updated;
+            });
+            if (createdForecast) {
+                showToast(`Atividade criada e próxima calibração (${newServiceData.period}m) agendada como Prevista!`);
+            } else {
+                showToast('Atividade criada com sucesso!');
+            }
         }
         setIsModalOpen(false);
     };
@@ -507,64 +628,125 @@ const App: React.FC = () => {
     };
 
     const handleServiceMove = (id: string, newStartDate: string, newTechId: string, oldTechId: string) => {
-        setServices(prev => prev.map(s => {
-            if (s.id !== id) return s;
-            try {
-                const duration = calculateDuration(s.startDate, s.endDate);
-                const newStart = parseISO(newStartDate);
-                const newEnd = addDays(newStart, duration - 1);
-                const newWeek = getISOWeek(newStart);
+        const serviceToMove = services.find(s => s.id === id);
+        if (!serviceToMove) return;
 
-                // Tech Swapping Logic:
-                // Remove the 'oldTechId' (where drag started) and add 'newTechId' (where dropped)
-                // If dragging within the same tech, this effectively does nothing to the list.
-                const currentTechs = s.technicianIds || [];
-                let newTechs = [...currentTechs];
+        try {
+            const duration = calculateDuration(serviceToMove.startDate, serviceToMove.endDate);
+            const newStart = parseISO(newStartDate);
+            if (!isValid(newStart)) return;
 
-                if (oldTechId && newTechId && oldTechId !== newTechId) {
-                    // Remove old tech
-                    newTechs = newTechs.filter(t => t !== oldTechId);
-                    // Add new tech if not present
-                    if (!newTechs.includes(newTechId)) {
-                        newTechs.push(newTechId);
+            const newEnd = addDays(newStart, duration - 1);
+            const newEndDate = format(newEnd, 'yyyy-MM-dd');
+            const newWeek = getISOWeek(newStart);
+
+            let targetTechId = newTechId;
+
+            // Checar se o técnico de destino está em conflito nesta nova data
+            const conflicts = getTechnicianConflicts(services, newTechId, newStartDate, newEndDate, id);
+
+            if (conflicts.length > 0) {
+                const conflictTech = technicians.find(t => t.id === newTechId);
+                const techName = conflictTech ? `${conflictTech.name} (${conflictTech.fullName})` : 'selecionado';
+
+                // Procurar técnicos livres neste período
+                const freeTechs = findAvailableTechnicians(technicians, services, newStartDate, newEndDate, id);
+
+                if (freeTechs.length > 0) {
+                    const suggestedTech = freeTechs[0];
+                    const accepted = window.confirm(
+                        `⚠️ SOBREPOSIÇÃO DETECTADA!\n\n` +
+                        `O técnico ${techName} já possui ${conflicts.length} atividade(s) agendada(s) entre ${format(newStart, 'dd/MM/yyyy')} e ${format(newEnd, 'dd/MM/yyyy')}.\n\n` +
+                        `Deseja realocar automaticamente esta atividade para o técnico disponível "${suggestedTech.name} (${suggestedTech.fullName})"?`
+                    );
+
+                    if (accepted) {
+                        targetTechId = suggestedTech.id;
+                        showToast(`Atividade realocada para o técnico ${suggestedTech.name}`);
+                    } else {
+                        showToast('Movimentação cancelada para evitar sobreposição.');
+                        return;
                     }
-                } else if (!currentTechs.includes(newTechId)) {
-                    // Fallback for edge cases, though timeline should provide oldTechId
-                    newTechs.push(newTechId);
+                } else {
+                    // Não há técnicos livres -> Bloqueia a sobreposição
+                    alert(
+                        `🚫 SOBREPOSIÇÃO BLOQUEADA!\n\n` +
+                        `O técnico ${techName} está ocupado neste período e NÃO há nenhum outro técnico disponível nesta data.\n\n` +
+                        `A alteração foi cancelada.`
+                    );
+                    return;
                 }
+            }
+
+            // Tech Swapping Logic:
+            const currentTechs = serviceToMove.technicianIds || [];
+            let newTechs = [...currentTechs];
+
+            if (oldTechId && targetTechId && oldTechId !== targetTechId) {
+                newTechs = newTechs.filter(t => t !== oldTechId);
+                if (!newTechs.includes(targetTechId)) {
+                    newTechs.push(targetTechId);
+                }
+            } else if (!currentTechs.includes(targetTechId)) {
+                newTechs.push(targetTechId);
+            }
+
+            setServices(prev => prev.map(s => {
+                if (s.id !== id) return s;
 
                 const updatedService = {
                     ...s,
                     startDate: newStartDate,
-                    endDate: format(newEnd, 'yyyy-MM-dd'),
+                    endDate: newEndDate,
                     technicianIds: newTechs,
                     week: newWeek
                 };
 
                 // Logic: If confirmed and moved to the past, sync lastCalibration
                 if (updatedService.status === ServiceStatus.CONFIRMED) {
-                    const end = newEnd; // already a Date object from addDays
                     const today = startOfDay(new Date());
-                    if (isValid(end) && isBefore(end, today)) {
+                    if (isValid(newEnd) && isBefore(newEnd, today)) {
                         updatedService.lastCalibration = updatedService.endDate;
                     }
                 }
 
                 return updatedService;
-            } catch {
-                return s;
-            }
-        }));
+            }));
+
+            showToast('Atividade reagendada com sucesso!');
+        } catch (e) {
+            console.error('Erro ao mover serviço:', e);
+            showToast('Erro ao reagendar atividade');
+        }
     };
 
     const handleServiceResize = (id: string, newStartDate: string, newEndDate: string) => {
+        const serviceToResize = services.find(s => s.id === id);
+        if (!serviceToResize) return;
+
+        const newStart = parseISO(newStartDate);
+        const newEnd = parseISO(newEndDate);
+        if (!isValid(newStart) || !isValid(newEnd) || newEnd < newStart) return;
+
+        // Checar conflitos para os técnicos atribuídos na nova duração
+        const techIds = serviceToResize.technicianIds || [];
+        for (const tId of techIds) {
+            const conflicts = getTechnicianConflicts(services, tId, newStartDate, newEndDate, id);
+            if (conflicts.length > 0) {
+                const t = technicians.find(tech => tech.id === tId);
+                const tName = t ? `${t.name} (${t.fullName})` : tId;
+                const confirmResize = window.confirm(
+                    `⚠️ SOBREPOSIÇÃO DETECTADA!\n\nAo alterar a duração, o técnico ${tName} terá sobreposição com ${conflicts.length} outra(s) atividade(s).\n\nDeseja confirmar a alteração mesmo assim?`
+                );
+                if (!confirmResize) {
+                    showToast('Alteração de duração cancelada.');
+                    return;
+                }
+            }
+        }
+
         setServices(prev => prev.map(s => {
             if (s.id !== id) return s;
-
-            const newStart = parseISO(newStartDate);
-            const newEnd = parseISO(newEndDate);
-            if (!isValid(newStart) || !isValid(newEnd)) return s;
-            if (newEnd < newStart) return s;
 
             const updatedService: Service = {
                 ...s,
@@ -583,7 +765,7 @@ const App: React.FC = () => {
 
             return updatedService;
         }));
-        showToast('Duração da atividade atualizada');
+        showToast('Duração da atividade atualizada.');
     };
 
     const handleServiceClick = (service: Service) => {
@@ -742,6 +924,22 @@ const App: React.FC = () => {
                 onUpdateUser={handleUpdateUser}
             />
 
+            <CalibrationAlertsModal
+                isOpen={isCalibrationAlertsModalOpen}
+                onClose={() => setIsCalibrationAlertsModalOpen(false)}
+                services={services}
+                technicians={technicians}
+                clients={clients}
+                onSelectService={(service) => {
+                    setEditingService(service);
+                    setIsModalOpen(true);
+                }}
+                onNavigateToDate={(date) => {
+                    setSelectedYear(date.getFullYear());
+                    setSelectedMonth(date.getMonth());
+                }}
+            />
+
             {/* --- HEADER & CONTROLS --- */}
             <header className="bg-white/80 backdrop-blur-sm border-b border-slate-200 p-4 space-y-4 sticky top-0 z-40">
                 <div className="flex items-center justify-between gap-4">
@@ -883,6 +1081,45 @@ const App: React.FC = () => {
                             )}
 
                             <div className="h-8 w-px bg-slate-200 mx-1"></div>
+
+                            {/* Botão Central de Alertas de Calibração */}
+                            <button
+                                onClick={() => setIsCalibrationAlertsModalOpen(true)}
+                                className={`relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${
+                                    calibrationAlertsSummary.totalAlerts > 0
+                                        ? 'bg-amber-50/80 border-amber-300 text-amber-900 hover:bg-amber-100 shadow-sm'
+                                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                                }`}
+                                title="Central de Alertas de Calibração"
+                            >
+                                <Bell
+                                    size={15}
+                                    className={
+                                        calibrationAlertsSummary.expired > 0
+                                            ? 'text-red-600 animate-bounce'
+                                            : calibrationAlertsSummary.expiringSoon > 0
+                                            ? 'text-amber-600'
+                                            : 'text-slate-500'
+                                    }
+                                />
+                                <span className="hidden sm:inline">Calibrações</span>
+                                {calibrationAlertsSummary.expired > 0 && (
+                                    <span
+                                        className="px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[10px] font-black"
+                                        title={`${calibrationAlertsSummary.expired} calibrações vencidas`}
+                                    >
+                                        {calibrationAlertsSummary.expired}
+                                    </span>
+                                )}
+                                {calibrationAlertsSummary.expiringSoon > 0 && (
+                                    <span
+                                        className="px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[10px] font-black"
+                                        title={`${calibrationAlertsSummary.expiringSoon} calibrações a vencer em 30 dias`}
+                                    >
+                                        {calibrationAlertsSummary.expiringSoon}
+                                    </span>
+                                )}
+                            </button>
 
                             {userCanExport && (
                                 <button onClick={handleExport} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Baixar Excel">

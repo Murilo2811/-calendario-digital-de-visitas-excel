@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Service, ServiceStatus, Technician, TechType } from '../types';
-import { getDaysInRange } from '../utils';
+import { getDaysInRange, getCalibrationStatus, getClientConflicts } from '../utils';
 import { addDays } from 'date-fns/addDays';
 import { areIntervalsOverlapping } from 'date-fns/areIntervalsOverlapping';
 import { differenceInDays } from 'date-fns/differenceInDays';
@@ -284,7 +284,27 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
         const isResizing = resizeState?.service.id === service.id;
         const isAnyResizing = resizeState !== null;
 
-        const tooltipText = `Cliente: ${service.client}\nOS: ${service.os || 'N/A'}\nDescrição: ${service.description || 'N/A'}\nPeríodo: ${format(parseISO(service.startDate), 'dd/MM/yy')} - ${format(parseISO(service.endDate), 'dd/MM/yy')}`;
+        const calStatus = getCalibrationStatus(service);
+        const isExpired = calStatus.level === 'EXPIRED';
+        const isExpiringSoon = calStatus.level === 'EXPIRING_SOON';
+
+        // Check if there are other services for the same client overlapping with this one
+        const clientConflicts = getClientConflicts(services, service.client, service.startDate, service.endDate, service.id);
+        const hasClientOverlap = clientConflicts.length > 0;
+
+        let calTooltipExtra = '';
+        if (isExpired) {
+            calTooltipExtra = `\n⚠️ CALIBRAÇÃO VENCIDA (Prevista para ${calStatus.targetDateText}, atrasada em ${Math.abs(calStatus.daysRemaining || 0)} dias)`;
+        } else if (isExpiringSoon) {
+            calTooltipExtra = `\n⏰ CALIBRAÇÃO VENCE EM ${calStatus.daysRemaining} DIAS (${calStatus.targetDateText})`;
+        }
+
+        let overlapTooltipExtra = '';
+        if (hasClientOverlap) {
+            overlapTooltipExtra = `\n⚠️ SOBREPOSIÇÃO DE CLIENTE: Há ${clientConflicts.length} outra(s) visita(s) agendada(s) para este cliente no mesmo período.`;
+        }
+
+        const tooltipText = `Cliente: ${service.client}\nOS: ${service.os || 'N/A'}\nDescrição: ${service.description || 'N/A'}\nPeríodo: ${format(parseISO(service.startDate), 'dd/MM/yy')} - ${format(parseISO(service.endDate), 'dd/MM/yy')}${calTooltipExtra}${overlapTooltipExtra}`;
 
         const isCompact = totalLanesInGroup > 1;
 
@@ -293,7 +313,6 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
         const paddingY = isCompact ? 'py-0' : 'py-1';
         const lineLeading = isCompact ? 'leading-tight' : 'leading-snug';
 
-
         return (
             <div
                 key={`${service.id}-${sourceTechId}-${style.left}`}
@@ -301,7 +320,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                 onDragStart={(e) => handleDragStart(e, service, sourceTechId)}
                 onDragEnd={handleDragEnd}
                 onClick={(e) => { e.stopPropagation(); onServiceClick(service); }}
-                className={`absolute rounded-md shadow-sm px-1.5 flex flex-col justify-center cursor-pointer hover:brightness-110 select-none overflow-hidden border border-white/20 z-10 hover:z-20
+                className={`absolute rounded-md shadow-sm px-1.5 flex flex-col justify-center cursor-pointer hover:brightness-110 select-none overflow-hidden border ${hasClientOverlap ? 'ring-2 ring-amber-400 border-amber-500' : 'border-white/20'} z-10 hover:z-20
                 ${bgColor} ${textColor} ${paddingY}
                 ${continuesLeft ? 'rounded-l-none border-l-0' : ''}
                 ${continuesRight ? 'rounded-r-none border-r-0' : ''}
@@ -311,7 +330,18 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                 style={style}
                 title={tooltipText}
             >
-                <div className={`font-bold truncate ${lineLeading} ${clientFontSize}`}>{service.client}</div>
+                <div className="flex items-center gap-1 min-w-0">
+                    {hasClientOverlap && (
+                        <span className="flex-shrink-0 text-amber-300 text-[10px] font-bold" title="Sobreposição de Cliente">⚠️</span>
+                    )}
+                    {isExpired && (
+                        <span className="flex-shrink-0 px-1 py-0.2 bg-red-600 text-white rounded text-[8px] font-black uppercase tracking-wider" title={`Vencida (${calStatus.targetDateText})`}>VENC</span>
+                    )}
+                    {isExpiringSoon && (
+                        <span className="flex-shrink-0 px-1 py-0.2 bg-amber-500 text-white rounded text-[8px] font-black uppercase tracking-wider" title={`Vence em ${calStatus.daysRemaining}d`}>{calStatus.daysRemaining}D</span>
+                    )}
+                    <span className={`font-bold truncate ${lineLeading} ${clientFontSize}`}>{service.client}</span>
+                </div>
                 <div className={`opacity-80 truncate ${lineLeading} ${osFontSize}`}>{service.os || '-'}</div>
                 {canEdit && !isAnyDragging && !isAnyResizing && (
                     <>

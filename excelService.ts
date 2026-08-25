@@ -372,7 +372,98 @@ export const readUsersFromExcel = async (handle: FileHandle): Promise<User[]> =>
 };
 
 /**
- * Lê todos os dados do Excel
+ * Extrai todos os dados estruturados a partir de um WorkBook XLSX
+ */
+export const parseWorkbookData = (workbook: XLSX.WorkBook): {
+  services: Service[];
+  technicians: Technician[];
+  clients: Client[];
+  users: User[];
+} => {
+  // 1. Técnicos
+  const techSheet = workbook.Sheets[SHEET_TECHNICIANS];
+  const technicians: Technician[] = techSheet
+    ? XLSX.utils.sheet_to_json<Record<string, unknown>>(techSheet).map((row, index) => ({
+        id: String(row['ID'] || `tech-${index}-${Date.now()}`),
+        name: String(row['Sigla'] || ''),
+        fullName: String(row['Nome Completo'] || row['Nome'] || ''),
+        type: parseTechType(String(row['Tipo'] || 'Internal')),
+        color: String(row['Cor'] || 'bg-red-100'),
+      }))
+    : [];
+
+  // 2. Clientes
+  const clientSheet = workbook.Sheets[SHEET_CLIENTS];
+  const clients: Client[] = clientSheet
+    ? XLSX.utils.sheet_to_json<Record<string, unknown>>(clientSheet).map((row, index) => ({
+        id: String(row['ID'] || `cli-${index}-${Date.now()}`),
+        name: String(row['Nome'] || row['Nome Fantasia'] || ''),
+        corporateName: row['Razao Social'] ? String(row['Razao Social']) : undefined,
+        cnpj: row['CNPJ'] ? String(row['CNPJ']) : undefined,
+        city: row['Cidade'] ? String(row['Cidade']) : undefined,
+        state: row['Estado'] ? String(row['Estado']) : undefined,
+        contactName: row['Contato'] ? String(row['Contato']) : undefined,
+        email: row['Email'] ? String(row['Email']) : undefined,
+        phone: row['Telefone'] ? String(row['Telefone']) : undefined,
+      }))
+    : [];
+
+  // 3. Usuários
+  const userSheet = workbook.Sheets[SHEET_USERS];
+  const users: User[] = userSheet
+    ? XLSX.utils.sheet_to_json<Record<string, unknown>>(userSheet).map((row, index) => ({
+        id: String(row['ID'] || `user-${index}-${Date.now()}`),
+        username: String(row['Usuario'] || ''),
+        passwordHash: String(row['SenhaHash'] || ''),
+        role: (String(row['Papel'] || 'user').toLowerCase() as UserRole),
+        fullName: String(row['NomeCompleto'] || row['Usuario'] || ''),
+        createdAt: String(row['CriadoEm'] || new Date().toISOString().split('T')[0]),
+      }))
+    : [];
+
+  // 4. Serviços
+  const serviceSheet = workbook.Sheets[SHEET_SERVICES];
+  const services: Service[] = serviceSheet
+    ? XLSX.utils.sheet_to_json<Record<string, unknown>>(serviceSheet).map((row, index) => {
+        const techString = String(row['Tecnicos'] || row['EXEC.'] || '');
+        const techNames = techString.split(',').map(s => s.trim()).filter(Boolean);
+        const technicianIds = techNames
+          .map(name => technicians.find(t => t.name === name || t.fullName === name)?.id)
+          .filter((id): id is string => !!id);
+
+        const startDateStr = parseExcelDate(row['Inicio'] || row['Data Inicio']);
+        const endDateStr = parseExcelDate(row['Fim'] || row['Data Fim']);
+        let weekNumber = Number(row['Semana'] || row['SEM.'] || 0);
+        const parsedStart = parseISO(startDateStr);
+        if (isValid(parsedStart)) {
+          weekNumber = getISOWeek(parsedStart);
+        }
+
+        return {
+          id: String(row['ID'] || `svc-imported-${index}-${Date.now()}`),
+          week: weekNumber,
+          client: String(row['Cliente'] || row['CLIENT'] || ''),
+          manager: String(row['Gerente'] || row['Manager'] || ''),
+          os: String(row['OS'] || ''),
+          description: String(row['Descricao'] || row['DESCRIPT'] || ''),
+          hp: Number(row['HP'] || 0),
+          ht: Number(row['HT'] || 0),
+          hv: Number(row['HV'] || 0),
+          startDate: startDateStr,
+          endDate: endDateStr,
+          technicianIds: technicianIds.length > 0 ? technicianIds : [],
+          status: parseStatus(String(row['Status'] || 'Cliente Previsto')),
+          lastCalibration: parseExcelDate(row['Ultima Calibracao'] || row['LAST.CAL']),
+          period: Number(row['Periodo'] || row['PERIOD'] || 0),
+        };
+      })
+    : [];
+
+  return { services, technicians, clients, users };
+};
+
+/**
+ * Lê todos os dados do arquivo Excel via FileHandle
  */
 export const readAllFromExcel = async (handle: FileHandle): Promise<{
   services: Service[];
@@ -380,13 +471,152 @@ export const readAllFromExcel = async (handle: FileHandle): Promise<{
   clients: Client[];
   users: User[];
 }> => {
-  // Ler técnicos primeiro para usar no mapeamento de serviços
-  const technicians = await readTechniciansFromExcel(handle);
-  const clients = await readClientsFromExcel(handle);
-  const services = await readServicesFromExcel(handle, technicians);
-  const users = await readUsersFromExcel(handle);
+  const workbook = await readWorkbook(handle);
+  return parseWorkbookData(workbook);
+};
 
-  return { services, technicians, clients, users };
+// --- MÉTODOS PARA SERVIDOR DE REDE LOCAL (POWER SHELL / HTTP LISTENER) ---
+
+export interface NetworkServerStatus {
+  running: boolean;
+  port?: number;
+  excelFileName?: string;
+  excelExists?: boolean;
+  excelPath?: string;
+}
+
+/**
+ * Verifica se o micro-servidor local de rede está rodando
+ */
+export const checkNetworkServerStatus = async (): Promise<NetworkServerStatus | null> => {
+  try {
+    const res = await fetch('/api/excel/status', { method: 'GET', cache: 'no-store' });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {
+    // Servidor local não disponível (ex: rodando via Vite dev ou servidor web estático)
+  }
+  return null;
+};
+
+/**
+ * Carrega a planilha central diretamente do servidor de rede
+ */
+export const loadFromNetworkServer = async (): Promise<{
+  services: Service[];
+  technicians: Technician[];
+  clients: Client[];
+  users: User[];
+  fileName: string;
+} | null> => {
+  try {
+    const res = await fetch('/api/excel/load', { method: 'GET', cache: 'no-store' });
+    if (!res.ok) return null;
+
+    const arrayBuffer = await res.arrayBuffer();
+    const workbook = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+    const data = parseWorkbookData(workbook);
+    return { ...data, fileName: 'Calendario_Digital_Base.xlsx' };
+  } catch (e) {
+    console.error('Erro ao carregar dados do servidor de rede:', e);
+    return null;
+  }
+};
+
+/**
+ * Salva os dados diretamente na planilha central da rede via micro-servidor local
+ */
+export const saveToNetworkServer = async (
+  services: Service[],
+  technicians: Technician[],
+  clients: Client[],
+  users: User[]
+): Promise<boolean> => {
+  try {
+    const workbook = XLSX.utils.book_new();
+
+    // 1. Atividades
+    const servicesData = services.map(s => {
+      const techNames = s.technicianIds
+        .map(id => technicians.find(t => t.id === id)?.name || '')
+        .filter(Boolean)
+        .join(', ');
+      return {
+        'ID': s.id,
+        'Semana': s.week,
+        'Cliente': s.client,
+        'Gerente': s.manager,
+        'OS': s.os,
+        'Descricao': s.description,
+        'HP': s.hp,
+        'HT': s.ht,
+        'HV': s.hv,
+        'Data Inicio': s.startDate,
+        'Data Fim': s.endDate,
+        'Tecnicos': techNames,
+        'Status': s.status,
+        'Ultima Calibracao': s.lastCalibration || '',
+        'Periodo': s.period || 0,
+      };
+    });
+    const servicesSheet = XLSX.utils.json_to_sheet(servicesData);
+    XLSX.utils.book_append_sheet(workbook, servicesSheet, SHEET_SERVICES);
+
+    // 2. Técnicos
+    const techniciansData = technicians.map(t => ({
+      'ID': t.id,
+      'Sigla': t.name,
+      'Nome Completo': t.fullName,
+      'Tipo': t.type,
+      'Cor': t.color,
+    }));
+    const techniciansSheet = XLSX.utils.json_to_sheet(techniciansData);
+    XLSX.utils.book_append_sheet(workbook, techniciansSheet, SHEET_TECHNICIANS);
+
+    // 3. Clientes
+    const clientsData = clients.map(c => ({
+      'ID': c.id,
+      'Nome': c.name,
+      'Razao Social': c.corporateName || '',
+      'CNPJ': c.cnpj || '',
+      'Cidade': c.city || '',
+      'Estado': c.state || '',
+      'Contato': c.contactName || '',
+      'Email': c.email || '',
+      'Telefone': c.phone || '',
+    }));
+    const clientsSheet = XLSX.utils.json_to_sheet(clientsData);
+    XLSX.utils.book_append_sheet(workbook, clientsSheet, SHEET_CLIENTS);
+
+    // 4. Usuários
+    const usersData = users.map(u => ({
+      'ID': u.id,
+      'Usuario': u.username,
+      'SenhaHash': u.passwordHash,
+      'Papel': u.role,
+      'NomeCompleto': u.fullName,
+      'CriadoEm': u.createdAt,
+    }));
+    const usersSheet = XLSX.utils.json_to_sheet(usersData);
+    XLSX.utils.book_append_sheet(workbook, usersSheet, SHEET_USERS);
+
+    const excelBuffer = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
+    const blob = new Blob([excelBuffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+
+    const res = await fetch('/api/excel/save', {
+      method: 'POST',
+      body: blob,
+      headers: { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
+    });
+
+    return res.ok;
+  } catch (e) {
+    console.error('Erro ao salvar no servidor de rede:', e);
+    return false;
+  }
 };
 
 /**
