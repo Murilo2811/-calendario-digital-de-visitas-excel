@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Service, ServiceStatus, Technician, TechType } from '../types';
-import { getDaysInRange, getCalibrationStatus, getClientConflicts } from '../utils';
+import { getDaysInRange, getCalibrationStatus, getClientConflicts, checkPeriodExceeded } from '../utils';
 import { addDays } from 'date-fns/addDays';
 import { areIntervalsOverlapping } from 'date-fns/areIntervalsOverlapping';
 import { differenceInDays } from 'date-fns/differenceInDays';
@@ -288,12 +288,18 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
         const isExpired = calStatus.level === 'EXPIRED';
         const isExpiringSoon = calStatus.level === 'EXPIRING_SOON';
 
+        // Check if periodicity deadline was exceeded (atraso de periodicidade)
+        const periodCheck = checkPeriodExceeded(service, service.startDate);
+        const isPeriodExceeded = periodCheck.isExceeded;
+
         // Check if there are other services for the same client overlapping with this one
         const clientConflicts = getClientConflicts(services, service.client, service.startDate, service.endDate, service.id);
         const hasClientOverlap = clientConflicts.length > 0;
 
         let calTooltipExtra = '';
-        if (isExpired) {
+        if (isPeriodExceeded) {
+            calTooltipExtra = `\n⚠️ PRAZO DE PERIODICIDADE EXCEDIDO em ${periodCheck.daysExceeded} dia(s) (Data limite era: ${periodCheck.limitDateText})`;
+        } else if (isExpired) {
             calTooltipExtra = `\n⚠️ CALIBRAÇÃO VENCIDA (Prevista para ${calStatus.targetDateText}, atrasada em ${Math.abs(calStatus.daysRemaining || 0)} dias)`;
         } else if (isExpiringSoon) {
             calTooltipExtra = `\n⏰ CALIBRAÇÃO VENCE EM ${calStatus.daysRemaining} DIAS (${calStatus.targetDateText})`;
@@ -313,6 +319,10 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
         const paddingY = isCompact ? 'py-0' : 'py-1';
         const lineLeading = isCompact ? 'leading-tight' : 'leading-snug';
 
+        const borderStyle = isPeriodExceeded
+            ? 'ring-2 ring-red-500 border-red-600'
+            : (hasClientOverlap ? 'ring-2 ring-amber-400 border-amber-500' : 'border-white/20');
+
         return (
             <div
                 key={`${service.id}-${sourceTechId}-${style.left}`}
@@ -320,7 +330,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                 onDragStart={(e) => handleDragStart(e, service, sourceTechId)}
                 onDragEnd={handleDragEnd}
                 onClick={(e) => { e.stopPropagation(); onServiceClick(service); }}
-                className={`absolute rounded-md shadow-sm px-1.5 flex flex-col justify-center cursor-pointer hover:brightness-110 select-none overflow-hidden border ${hasClientOverlap ? 'ring-2 ring-amber-400 border-amber-500' : 'border-white/20'} z-10 hover:z-20
+                className={`absolute rounded-md shadow-sm px-1.5 flex flex-col justify-center cursor-pointer hover:brightness-110 select-none overflow-hidden border ${borderStyle} z-10 hover:z-20
                 ${bgColor} ${textColor} ${paddingY}
                 ${continuesLeft ? 'rounded-l-none border-l-0' : ''}
                 ${continuesRight ? 'rounded-r-none border-r-0' : ''}
@@ -334,10 +344,13 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                     {hasClientOverlap && (
                         <span className="flex-shrink-0 text-amber-300 text-[10px] font-bold" title="Sobreposição de Cliente">⚠️</span>
                     )}
-                    {isExpired && (
+                    {isPeriodExceeded && (
+                        <span className="flex-shrink-0 px-1 py-0.2 bg-red-600 text-white rounded text-[8px] font-black uppercase tracking-wider animate-pulse" title={`Prazo Excedido (+${periodCheck.daysExceeded} dias)`}>+{periodCheck.daysExceeded}D</span>
+                    )}
+                    {!isPeriodExceeded && isExpired && (
                         <span className="flex-shrink-0 px-1 py-0.2 bg-red-600 text-white rounded text-[8px] font-black uppercase tracking-wider" title={`Vencida (${calStatus.targetDateText})`}>VENC</span>
                     )}
-                    {isExpiringSoon && (
+                    {!isPeriodExceeded && isExpiringSoon && (
                         <span className="flex-shrink-0 px-1 py-0.2 bg-amber-500 text-white rounded text-[8px] font-black uppercase tracking-wider" title={`Vence em ${calStatus.daysRemaining}d`}>{calStatus.daysRemaining}D</span>
                     )}
                     <span className={`font-bold truncate ${lineLeading} ${clientFontSize}`}>{service.client}</span>

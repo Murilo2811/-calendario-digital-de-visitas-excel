@@ -11,19 +11,22 @@ Basta copiar os seguintes arquivos e pastas para o diretório compartilhado na r
 ```
 📁 Pasta Compartilhada na Rede
 │
-├── 📅 Abrir Calendario.bat          <-- O usuário só dá duplo clique AQUI
-├── ⚙️ server.ps1                   <-- Micro-servidor nativo (oculto em background)
-├── 📊 Calendario_Digital_Base.xlsx  <-- Planilha Excel central compartilhada
-└── 📁 dist/                         <-- Pasta contendo a aplicação compilada
+├── 🔴 Calendario Digital ABB.lnk       <-- ATALHO COM O ÍCONE OFICIAL DA ABB (Duplo clique)
+├── 📅 Abrir Calendario.bat             <-- Inicializador em lote
+├── 📌 Criar Atalho na Area de Trabalho.bat <-- Cria o ícone da ABB na sua Área de Trabalho
+├── ⚙️ server.ps1                        <-- Micro-servidor nativo (oculto em background)
+├── 📊 Calendario_Digital_Base.xlsx       <-- Planilha Excel central compartilhada
+├── 🔴 abb.ico                           <-- Ícone oficial da ABB (multi-resolução)
+└── 📁 dist/                             <-- Pasta contendo a aplicação compilada
 ```
 
 ---
 
 ## 🖱️ Como o Usuário Utiliza
 
-1. O usuário abre a pasta na rede (ou um atalho criado na Área de Trabalho dele apontando para o `Abrir Calendario.bat`).
-2. Dá **duplo clique** em **`Abrir Calendario.bat`**.
-3. O sistema abre instantaneamente uma janela dedicada do Microsoft Edge (em modo App Desktop, sem barra de navegação).
+1. O usuário abre a pasta na rede e dá **duplo clique no atalho com a logo da ABB** (**`Calendario Digital ABB.lnk`**).
+   *(Opcional: O usuário também pode dar duplo clique em `Criar Atalho na Area de Trabalho.bat` para ter o ícone da ABB direto no seu Desktop com 1 clique!)*
+2. O sistema abre instantaneamente uma janela dedicada em modo App Desktop com o ícone oficial da ABB na barra de tarefas.
 4. O usuário entra com seu **login e senha**:
    * **Administrador padrão inicial:**
      * **Usuário:** `admin`

@@ -20,7 +20,10 @@ import {
     getClientConflicts,
     findAvailableTechnicians,
     getCalibrationStatus,
-    createNextCalibrationService
+    createNextCalibrationService,
+    createRecurringCalibrationForecasts,
+    checkPeriodExceeded,
+    recalculateFutureForecastsFromNewDate
 } from './utils';
 import {
     openExcelFile,
@@ -489,48 +492,44 @@ const App: React.FC = () => {
             }
         }
 
-        let createdForecast: Service | null = null;
+        let recurringForecasts: Service[] = [];
 
-        // Se for Confirmado com periodicidade de calibração (>0), verificar se precisa gerar próxima previsão automática
-        if (newServiceData.status === ServiceStatus.CONFIRMED && newServiceData.period && newServiceData.period > 0) {
-            const start = parseISO(newServiceData.startDate);
-            if (isValid(start)) {
-                const projectedStart = addMonths(start, newServiceData.period);
-                const projectedStartStr = format(projectedStart, 'yyyy-MM');
-
-                // Checa se já existe alguma previsão futura para este cliente no mesmo período
-                const clientNameNormalized = newServiceData.client.trim().toLowerCase();
-                const existingForecast = services.find(s => {
-                    if (editingService && s.id === editingService.id) return false;
-                    if (s.client.trim().toLowerCase() !== clientNameNormalized) return false;
-                    if (s.status !== ServiceStatus.PREDICTED) return false;
-                    return s.startDate.startsWith(projectedStartStr);
-                });
-
-                if (!existingForecast) {
-                    const tempBaseService: Service = {
-                        ...newServiceData,
-                        id: editingService ? editingService.id : 'temp-id'
-                    };
-                    const freeTechs = findAvailableTechnicians(
-                        technicians,
-                        services,
-                        format(projectedStart, 'yyyy-MM-dd'),
-                        format(addMonths(parseISO(newServiceData.endDate) || start, newServiceData.period), 'yyyy-MM-dd')
-                    );
-                    createdForecast = createNextCalibrationService(tempBaseService, freeTechs);
-                }
-            }
+        // Se possuir periodicidade de calibração definida (> 0), gera os agendamentos recorrentes automáticos (até 36 meses)
+        if (newServiceData.period && newServiceData.period > 0) {
+            const tempBaseService: Service = {
+                ...newServiceData,
+                id: editingService ? editingService.id : 'temp-id'
+            };
+            recurringForecasts = createRecurringCalibrationForecasts(
+                tempBaseService,
+                technicians,
+                services,
+                36 // Limite de 36 meses (3 anos)
+            );
         }
+
+        const clientNameNormalized = newServiceData.client.trim().toLowerCase();
 
         if (editingService) {
             setServices(prev => {
-                const updated = prev.map(s => s.id === editingService.id ? { ...s, ...newServiceData } : s);
-                return createdForecast ? [...updated, createdForecast] : updated;
+                // Atualiza o serviço editado e limpa previsões automáticas antigas não confirmadas do cliente
+                const filtered = prev.filter(s => {
+                    if (s.id === editingService.id) return true;
+                    if (recurringForecasts.length > 0 &&
+                        s.client.trim().toLowerCase() === clientNameNormalized &&
+                        s.status === ServiceStatus.PREDICTED &&
+                        s.description.includes('Calibração Prevista')) {
+                        return false; // Substitui pela nova série projetada
+                    }
+                    return true;
+                });
+
+                const updated = filtered.map(s => s.id === editingService.id ? { ...s, ...newServiceData } : s);
+                return recurringForecasts.length > 0 ? [...updated, ...recurringForecasts] : updated;
             });
             setEditingService(null);
-            if (createdForecast) {
-                showToast(`Atividade atualizada e próxima calibração (${newServiceData.period}m) agendada como Prevista!`);
+            if (recurringForecasts.length > 0) {
+                showToast(`Calibração atualizada e ${recurringForecasts.length} agendamento(s) futuro(s) projetado(s) até 36m!`);
             } else {
                 showToast('Atividade atualizada com sucesso!');
             }
@@ -540,11 +539,22 @@ const App: React.FC = () => {
                 id: `svc-${Date.now()}`,
             };
             setServices(prev => {
-                const updated = [...prev, newService];
-                return createdForecast ? [...updated, createdForecast] : updated;
+                // Limpa previsões automáticas antigas não confirmadas do cliente se uma nova calibração base for criada
+                const filtered = prev.filter(s => {
+                    if (recurringForecasts.length > 0 &&
+                        s.client.trim().toLowerCase() === clientNameNormalized &&
+                        s.status === ServiceStatus.PREDICTED &&
+                        s.description.includes('Calibração Prevista')) {
+                        return false;
+                    }
+                    return true;
+                });
+
+                const updated = [...filtered, newService];
+                return recurringForecasts.length > 0 ? [...updated, ...recurringForecasts] : updated;
             });
-            if (createdForecast) {
-                showToast(`Atividade criada e próxima calibração (${newServiceData.period}m) agendada como Prevista!`);
+            if (recurringForecasts.length > 0) {
+                showToast(`Calibração cadastrada e ${recurringForecasts.length} agendamento(s) futuro(s) projetado(s) até 36m!`);
             } else {
                 showToast('Atividade criada com sucesso!');
             }
@@ -640,9 +650,26 @@ const App: React.FC = () => {
             const newEndDate = format(newEnd, 'yyyy-MM-dd');
             const newWeek = getISOWeek(newStart);
 
+            // 1. Checar se o reagendamento ultrapassa a data limite da periodicidade (atraso)
+            const periodCheck = checkPeriodExceeded(serviceToMove, newStartDate);
+            if (periodCheck.isExceeded) {
+                const confirmed = window.confirm(
+                    `⚠️ ATENÇÃO: PRAZO DE PERIODICIDADE ULTRAPASSADO!\n\n` +
+                    `Cliente: ${serviceToMove.client}\n` +
+                    `Este reagendamento ultrapassará a data limite de calibração em ${periodCheck.daysExceeded} dia(s) (Data limite: ${periodCheck.limitDateText}).\n\n` +
+                    `Ao confirmar, as agendas futuras subsequentes deste cliente serão automaticamente recalculadas e reajustadas a partir desta nova data.\n\n` +
+                    `Deseja confirmar o reagendamento?`
+                );
+
+                if (!confirmed) {
+                    showToast('Reagendamento cancelado para preservar a periodicidade.');
+                    return;
+                }
+            }
+
             let targetTechId = newTechId;
 
-            // Checar se o técnico de destino está em conflito nesta nova data
+            // 2. Checar se o técnico de destino está em conflito nesta nova data
             const conflicts = getTechnicianConflicts(services, newTechId, newStartDate, newEndDate, id);
 
             if (conflicts.length > 0) {
@@ -691,29 +718,43 @@ const App: React.FC = () => {
                 newTechs.push(targetTechId);
             }
 
-            setServices(prev => prev.map(s => {
-                if (s.id !== id) return s;
+            setServices(prev => {
+                const updatedMoved = prev.map(s => {
+                    if (s.id !== id) return s;
 
-                const updatedService = {
-                    ...s,
-                    startDate: newStartDate,
-                    endDate: newEndDate,
-                    technicianIds: newTechs,
-                    week: newWeek
-                };
+                    const updatedService: Service = {
+                        ...s,
+                        startDate: newStartDate,
+                        endDate: newEndDate,
+                        technicianIds: newTechs,
+                        week: newWeek
+                    };
 
-                // Logic: If confirmed and moved to the past, sync lastCalibration
-                if (updatedService.status === ServiceStatus.CONFIRMED) {
-                    const today = startOfDay(new Date());
-                    if (isValid(newEnd) && isBefore(newEnd, today)) {
-                        updatedService.lastCalibration = updatedService.endDate;
+                    // Logic: If confirmed and moved to the past, sync lastCalibration
+                    if (updatedService.status === ServiceStatus.CONFIRMED) {
+                        const today = startOfDay(new Date());
+                        if (isValid(newEnd) && isBefore(newEnd, today)) {
+                            updatedService.lastCalibration = updatedService.endDate;
+                        }
                     }
+
+                    return updatedService;
+                });
+
+                const targetUpdated = updatedMoved.find(s => s.id === id);
+                if (targetUpdated && targetUpdated.period && targetUpdated.period > 0) {
+                    // Reajusta em cascata todas as agendas futuras do cliente a partir da nova data
+                    return recalculateFutureForecastsFromNewDate(targetUpdated, updatedMoved, technicians);
                 }
 
-                return updatedService;
-            }));
+                return updatedMoved;
+            });
 
-            showToast('Atividade reagendada com sucesso!');
+            if (periodCheck.isExceeded) {
+                showToast(`Atividade reagendada e agendas futuras subsequentes reajustadas em cascata!`);
+            } else {
+                showToast('Atividade reagendada com sucesso!');
+            }
         } catch (e) {
             console.error('Erro ao mover serviço:', e);
             showToast('Erro ao reagendar atividade');
@@ -950,7 +991,7 @@ const App: React.FC = () => {
                    or "/abb_logo.bmp" if you place the file in the public folder.
                 */}
                         <img
-                            src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/00/ABB_logo.svg/1280px-ABB_logo.svg.png"
+                            src="/abb_logo.png"
                             alt="ABB Logo"
                             className="h-8 w-auto object-contain"
                         />

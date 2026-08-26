@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Service, ServiceStatus, Technician, Client } from '../types';
-import { X, PlusCircle, Pencil, Trash2 } from 'lucide-react';
+import { X, PlusCircle, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns/format';
+import { checkPeriodExceeded } from '../utils';
 
 interface AddServiceModalProps {
   isOpen: boolean;
@@ -323,7 +324,14 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
               </div>
 
               <div className="bg-amber-50/40 p-4 rounded-lg border border-amber-200">
-                <h3 className="text-xs font-bold text-amber-800 mb-3 uppercase tracking-wider">Dados de Calibração</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Dados de Calibração & Recorrência</h3>
+                  {formData.period && formData.period > 0 ? (
+                    <span className="text-[11px] font-semibold text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-full border border-amber-300">
+                      ⚡ Projeção Automática Ativa (até 36m)
+                    </span>
+                  ) : null}
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className={labelClass}>Última Calibração</label>
@@ -336,9 +344,11 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>Período (Meses)</label>
+                    <label className={labelClass}>Período de Recorrência (Meses)</label>
                     <input
                       type="number"
+                      min="1"
+                      max="36"
                       readOnly={!canEdit}
                       className={`w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
                       value={formData.period}
@@ -346,6 +356,55 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                     />
                   </div>
                 </div>
+
+                {Boolean(formData.period && formData.period > 0) && (() => {
+                  const p = formData.period as number;
+                  const count = Math.min(Math.floor(36 / p), 12);
+                  const examples = Array.from({ length: count }, (_, i) => `+${(i + 1) * p}m`).join(', ');
+
+                  // Checa se a data inicial escolhida ultrapassa o prazo
+                  const startDateStr = formData.startDate || '';
+                  const dummyService: Service = {
+                    id: 'temp-service',
+                    week: 0,
+                    client: formData.client || '',
+                    manager: formData.manager || '',
+                    os: formData.os || '',
+                    description: formData.description || '',
+                    hp: Number(formData.hp || 0),
+                    ht: Number(formData.ht || 0),
+                    hv: Number(formData.hv || 0),
+                    startDate: startDateStr,
+                    endDate: formData.endDate || '',
+                    technicianIds: formData.technicianIds || [],
+                    status: formData.status || ServiceStatus.PREDICTED,
+                    lastCalibration: formData.lastCalibration || '',
+                    period: p
+                  };
+                  const periodCheck = startDateStr ? checkPeriodExceeded(dummyService, startDateStr) : { isExceeded: false, daysExceeded: 0, limitDate: null, limitDateText: '' };
+
+                  return (
+                    <div className="mt-3 pt-3 border-t border-amber-200/60 flex flex-col gap-2">
+                      {periodCheck.isExceeded && (
+                        <div className="flex items-center gap-2 text-xs text-red-700 bg-red-100/90 border border-red-300 p-2.5 rounded-md animate-pulse font-medium">
+                          <AlertTriangle size={16} className="text-red-600 flex-shrink-0" />
+                          <div>
+                            <strong>⚠️ ATENÇÃO: PRAZO DE PERIODICIDADE ULTRAPASSADO!</strong>
+                            <div className="text-[11px] text-red-600 mt-0.5">
+                              A data de início ({startDateStr}) ultrapassa a data limite calculada ({periodCheck.limitDateText}) em <strong>{periodCheck.daysExceeded} dias</strong>.
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex items-start gap-2 text-xs text-amber-900 bg-amber-100/40 p-2.5 rounded-md">
+                        <span className="text-amber-600 font-bold">💡</span>
+                        <div>
+                          <span className="font-semibold">Agendamentos futuros automáticos:</span> Ao salvar, o sistema projetará visitas como <span className="font-bold text-yellow-700 bg-yellow-100 px-1 py-0.5 rounded">Cliente Previsto</span> a cada <strong>{p} meses</strong> até o limite de <strong>36 meses</strong> (ex: {examples}).
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="bg-slate-50/70 p-4 rounded-lg border border-slate-200">

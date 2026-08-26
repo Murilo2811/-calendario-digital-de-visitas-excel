@@ -178,6 +178,175 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
 };
 
 /**
+ * Creates multiple recurring calibration forecast services up to a max horizon (default: 36 months / 3 years).
+ * Example for period=12: returns forecasts for +12m, +24m, +36m.
+ * Example for period=6: returns forecasts for +6m, +12m, +18m, +24m, +30m, +36m.
+ */
+export const createRecurringCalibrationForecasts = (
+  baseService: Service,
+  technicians: Technician[],
+  existingServices: Service[],
+  maxMonths: number = 36
+): Service[] => {
+  const period = baseService.period || 12;
+  if (!period || period <= 0) return [];
+
+  const start = parseISO(baseService.startDate);
+  const end = parseISO(baseService.endDate);
+  if (!isValid(start) || !isValid(end)) return [];
+
+  const forecasts: Service[] = [];
+  const preferredTechId = baseService.technicianIds?.[0];
+
+  // Duration in days to preserve the span
+  const duration = differenceInDays(end, start) + 1;
+
+  let cycle = 1;
+  for (let months = period; months <= maxMonths; months += period) {
+    const cycleStart = addMonths(start, months);
+    const cycleEnd = addDays(cycleStart, duration - 1);
+
+    const startDateStr = format(cycleStart, 'yyyy-MM-dd');
+    const endDateStr = format(cycleEnd, 'yyyy-MM-dd');
+    const week = getISOWeek(cycleStart);
+
+    // Combine existing services + previously generated forecasts in this loop to avoid intra-batch collision
+    const allServicesToCheck = [...existingServices, ...forecasts];
+    const availableTechs = findAvailableTechnicians(technicians, allServicesToCheck, startDateStr, endDateStr);
+
+    const isPreferredAvailable = preferredTechId ? availableTechs.some(t => t.id === preferredTechId) : false;
+    const chosenTechIds = isPreferredAvailable && preferredTechId
+      ? [preferredTechId]
+      : (availableTechs.length > 0 ? [availableTechs[0].id] : (baseService.technicianIds || []));
+
+    forecasts.push({
+      id: `svc-forecast-${Date.now()}-${cycle}-${Math.random().toString(36).substr(2, 5)}`,
+      week,
+      client: baseService.client,
+      manager: baseService.manager || '',
+      os: '', // Vazio para preenchimento posterior
+      description: `Calibração Prevista (+${months}m - Ciclo ${cycle}) - Ref. OS ${baseService.os || 'Base'}`,
+      hp: baseService.hp || 0,
+      ht: baseService.ht || 0,
+      hv: baseService.hv || 0,
+      startDate: startDateStr,
+      endDate: endDateStr,
+      technicianIds: chosenTechIds,
+      status: ServiceStatus.PREDICTED,
+      period: baseService.period,
+      lastCalibration: baseService.endDate || baseService.startDate
+    });
+
+    cycle++;
+  }
+
+  return forecasts;
+};
+
+/**
+ * Interface representing the result of a periodicity check.
+ */
+export interface PeriodExceededResult {
+  isExceeded: boolean;
+  daysExceeded: number;
+  limitDate: Date | null;
+  limitDateText: string;
+}
+
+/**
+ * Checks if a proposed start date for a service exceeds its expected calibration period deadline.
+ */
+export const checkPeriodExceeded = (
+  service: Service,
+  proposedStartDate: string
+): PeriodExceededResult => {
+  const period = service.period;
+  if (!period || period <= 0) {
+    return { isExceeded: false, daysExceeded: 0, limitDate: null, limitDateText: '' };
+  }
+
+  const proposedStart = parseISO(proposedStartDate);
+  if (!isValid(proposedStart)) {
+    return { isExceeded: false, daysExceeded: 0, limitDate: null, limitDateText: '' };
+  }
+
+  // Base date from lastCalibration or from the service's own creation/original context
+  let baseDate: Date | null = null;
+  if (service.lastCalibration) {
+    const lastCal = parseISO(service.lastCalibration);
+    if (isValid(lastCal)) {
+      baseDate = lastCal;
+    }
+  }
+
+  if (!baseDate && service.startDate) {
+    const start = parseISO(service.startDate);
+    if (isValid(start)) {
+      baseDate = start;
+    }
+  }
+
+  if (!baseDate) {
+    return { isExceeded: false, daysExceeded: 0, limitDate: null, limitDateText: '' };
+  }
+
+  const limitDate = addMonths(baseDate, period);
+  const limitDateText = format(limitDate, 'dd/MM/yyyy', { locale: ptBR });
+  const daysDiff = differenceInDays(proposedStart, limitDate);
+
+  if (daysDiff > 0) {
+    return {
+      isExceeded: true,
+      daysExceeded: daysDiff,
+      limitDate,
+      limitDateText
+    };
+  }
+
+  return {
+    isExceeded: false,
+    daysExceeded: 0,
+    limitDate,
+    limitDateText
+  };
+};
+
+/**
+ * Recalculates and replaces all future forecast visits for a client starting from a newly rescheduled service.
+ */
+export const recalculateFutureForecastsFromNewDate = (
+  updatedService: Service,
+  allServices: Service[],
+  technicians: Technician[],
+  maxMonths: number = 36
+): Service[] => {
+  if (!updatedService.period || updatedService.period <= 0) return allServices;
+
+  const clientNameNormalized = updatedService.client.trim().toLowerCase();
+
+  // 1. Remove previsões automáticas futuras desse cliente
+  const filtered = allServices.filter(s => {
+    if (s.id === updatedService.id) return true; // Mantém o próprio serviço
+    if (s.client.trim().toLowerCase() === clientNameNormalized &&
+        s.status === ServiceStatus.PREDICTED &&
+        s.description.includes('Calibração Prevista')) {
+      return false; // Remove para recalcular
+    }
+    return true;
+  });
+
+  // 2. Gera a nova série de previsões a partir da nova data
+  const newForecasts = createRecurringCalibrationForecasts(
+    updatedService,
+    technicians,
+    filtered,
+    maxMonths
+  );
+
+  return [...filtered, ...newForecasts];
+};
+
+/**
  * Creates a future projected service (Cliente Previsto) based on a completed/confirmed service.
  */
 export const createNextCalibrationService = (
