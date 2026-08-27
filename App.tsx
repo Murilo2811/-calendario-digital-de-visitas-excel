@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import { Service, Technician, ViewMode, ServiceStatus, TechType, Client, User, AppSettings } from './types';
-import { INITIAL_SERVICES, TECHNICIANS, INITIAL_CLIENTS } from './constants';
+import { TECHNICIANS, INITIAL_CLIENTS, STATUS_STYLE } from './constants';
 import { ServiceGrid } from './components/ServiceGrid';
 import { ResourceTimeline } from './components/ResourceTimeline';
 import { AddServiceModal } from './components/AddServiceModal';
@@ -8,7 +8,6 @@ import { QuickAddModal } from './components/QuickAddModal';
 import { TechManagerModal } from './components/TechManagerModal';
 import { ClientManagerModal } from './components/ClientManagerModal';
 import { HelpModal } from './components/HelpModal';
-import { ConfirmDisconnectModal } from './components/ConfirmDisconnectModal';
 import { LoginPage } from './components/LoginPage';
 import { SettingsModal } from './components/SettingsModal';
 import { CalibrationAlertsModal } from './components/CalibrationAlertsModal';
@@ -20,7 +19,6 @@ import {
     getClientConflicts,
     findAvailableTechnicians,
     getCalibrationStatus,
-    createNextCalibrationService,
     createRecurringCalibrationForecasts,
     checkPeriodExceeded,
     recalculateFutureForecastsFromNewDate
@@ -90,7 +88,7 @@ const sortTechnicians = (list: Technician[]) => {
 
 const App: React.FC = () => {
     const [view, setView] = useState<ViewMode>('grid');
-    const [services, setServices] = useState<Service[]>(INITIAL_SERVICES);
+    const [services, setServices] = useState<Service[]>([]);
     const [technicians, setTechnicians] = useState<Technician[]>(() => sortTechnicians(TECHNICIANS));
     const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
 
@@ -99,7 +97,6 @@ const App: React.FC = () => {
     const [isTechModalOpen, setIsTechModalOpen] = useState(false);
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
     const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
-    const [isDisconnectModalOpen, setIsDisconnectModalOpen] = useState(false);
     const [isCalibrationAlertsModalOpen, setIsCalibrationAlertsModalOpen] = useState(false);
     const [editingService, setEditingService] = useState<Service | null>(null);
 
@@ -144,16 +141,7 @@ const App: React.FC = () => {
         }, 3000);
     }, []);
 
-    const legendItems = [
-        { color: 'bg-slate-400', label: ServiceStatus.TRAINING_FIELD },
-        { color: 'bg-yellow-400', label: ServiceStatus.PREDICTED },
-        { color: 'bg-orange-400', label: ServiceStatus.WITH_ORDER },
-        { color: 'bg-green-600', label: ServiceStatus.CONFIRMED },
-        { color: 'bg-purple-500', label: ServiceStatus.TRAINING },
-        { color: 'bg-blue-500', label: ServiceStatus.VACATION },
-        { color: 'bg-cyan-400', label: ServiceStatus.NEGOTIATION },
-        { color: 'bg-slate-800', label: ServiceStatus.HOLIDAY },
-    ];
+    const legendItems = Object.entries(STATUS_STYLE).map(([label, { bg }]) => ({ color: bg, label }));
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -217,7 +205,7 @@ const App: React.FC = () => {
                         // Se o arquivo ainda não existe na rede, cria a planilha inicial automaticamente
                         const defaultAdmin = await createDefaultAdmin();
                         setUsers([defaultAdmin]);
-                        await saveToNetworkServer(INITIAL_SERVICES, sortTechnicians(TECHNICIANS), INITIAL_CLIENTS, [defaultAdmin]);
+                        await saveToNetworkServer([], sortTechnicians(TECHNICIANS), INITIAL_CLIENTS, [defaultAdmin]);
                         setExcelFileName('Calendario_Digital_Base.xlsx');
                         setIsExcelConnected(true);
                         showToast('Planilha central criada na rede!');
@@ -347,50 +335,24 @@ const App: React.FC = () => {
         }
     };
 
+    // O auto-save já gravou tudo antes deste clique, então desconectar é só encerrar a sessão.
     const handleDisconnectExcel = () => {
-        // Abre o modal de confirmação em vez de desconectar diretamente
-        setIsDisconnectModalOpen(true);
-    };
-
-    const handleSaveAndDisconnect = async () => {
-        if (excelHandle) {
-            setIsExcelLoading(true);
-            try {
-                await saveAllToExcel(excelHandle, services, technicians, clients, users);
-                showToast('Alterações salvas com sucesso!');
-            } catch (error) {
-                console.error('Erro ao salvar:', error);
-                showToast('Erro ao salvar alterações');
-            } finally {
-                setIsExcelLoading(false);
-            }
-        }
         setExcelHandle(null);
         setExcelFileName('');
         setIsExcelConnected(false);
-        setIsDisconnectModalOpen(false);
         showToast('Desconectado do arquivo Excel');
         setCurrentUser(null); // Logout ao desconectar
     };
 
-    const handleDisconnectWithoutSave = () => {
-        setExcelHandle(null);
-        setExcelFileName('');
-        setIsExcelConnected(false);
-        setIsDisconnectModalOpen(false);
-        showToast('Desconectado do arquivo Excel (sem salvar)');
-        setCurrentUser(null); // Logout ao desconectar
-    };
-
-    // Auto-save quando dados mudam e está conectado
+    // Auto-save quando dados mudam e está conectado (via handle local OU servidor de rede)
     useEffect(() => {
-        if (isExcelConnected && excelHandle) {
+        if (isExcelConnected && (excelHandle || isNetworkServer)) {
             const timeoutId = setTimeout(() => {
                 saveToExcelIfConnected(services, technicians, clients, users);
             }, 500); // Debounce de 500ms
             return () => clearTimeout(timeoutId);
         }
-    }, [services, technicians, clients, users, isExcelConnected, excelHandle, saveToExcelIfConnected]);
+    }, [services, technicians, clients, users, isExcelConnected, excelHandle, isNetworkServer, saveToExcelIfConnected]);
 
     // --- Date Logic ---
     const { rangeStart, rangeEnd } = useMemo(() => {
@@ -940,15 +902,6 @@ const App: React.FC = () => {
             <HelpModal
                 isOpen={isHelpModalOpen}
                 onClose={() => setIsHelpModalOpen(false)}
-            />
-
-            <ConfirmDisconnectModal
-                isOpen={isDisconnectModalOpen}
-                fileName={excelFileName}
-                onSaveAndDisconnect={handleSaveAndDisconnect}
-                onDisconnectWithoutSave={handleDisconnectWithoutSave}
-                onCancel={() => setIsDisconnectModalOpen(false)}
-                isSaving={isExcelLoading}
             />
 
             <SettingsModal
