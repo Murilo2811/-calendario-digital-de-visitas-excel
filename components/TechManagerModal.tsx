@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Modal } from './Modal';
 import { Technician, TechType } from '../types';
 import { X, UserPlus, Trash2, Users, Shield, Briefcase } from 'lucide-react';
 
@@ -46,7 +47,7 @@ export const TechManagerModal: React.FC<TechManagerModalProps> = ({
 
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <Modal isOpen={isOpen} onClose={onClose}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
         
         <div className="flex items-center justify-between p-5 border-b bg-white">
@@ -161,6 +162,6 @@ export const TechManagerModal: React.FC<TechManagerModalProps> = ({
 
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };

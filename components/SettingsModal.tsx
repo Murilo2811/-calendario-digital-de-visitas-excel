@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { User, AppSettings } from '../types';
+import { Modal } from './Modal';
+import { User, AppSettings, UserRole } from '../types';
 import { isAdmin, hashPassword } from '../authService';
 import {
     X,
@@ -51,19 +52,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onUpdateUser,
 }) => {
     const [activeTab, setActiveTab] = useState<'excel' | 'users' | 'account'>('excel');
-    const [newUsername, setNewUsername] = useState('');
-    const [newPassword, setNewPassword] = useState('');
-    const [newFullName, setNewFullName] = useState('');
-    const [newRole, setNewRole] = useState<'admin' | 'operador' | 'user'>('user');
     const [showNewPassword, setShowNewPassword] = useState(false);
     const [addError, setAddError] = useState('');
     const [isAddingUser, setIsAddingUser] = useState(false);
     const [editingUserId, setEditingUserId] = useState<string | null>(null);
-    const [editingRole, setEditingRole] = useState<'admin' | 'operador' | 'user'>('user');
+    const [editingRole, setEditingRole] = useState<UserRole>('user');
     // Estados para alterar senha
-    const [currentPassword, setCurrentPassword] = useState('');
-    const [newPasswordChange, setNewPasswordChange] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
     const [showCurrentPassword, setShowCurrentPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [passwordError, setPasswordError] = useState('');
@@ -84,36 +78,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         });
     };
 
-    const handleAddUser = async () => {
+    const handleAddUser = async (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
         setAddError('');
 
-        if (!newUsername.trim() || !newPassword.trim() || !newFullName.trim()) {
-            setAddError('Preencha todos os campos');
-            return;
-        }
+        // `required` nos inputs já barra campos vazios; aqui só resta a regra de negócio
+        const form = e.currentTarget;
+        const data = new FormData(form);
+        const username = String(data.get('username')).trim();
 
-        if (users.some(u => u.username.toLowerCase() === newUsername.toLowerCase())) {
+        if (users.some(u => u.username.toLowerCase() === username.toLowerCase())) {
             setAddError('Usuário já existe');
             return;
         }
 
         setIsAddingUser(true);
         try {
-            const passwordHash = await hashPassword(newPassword);
             const newUser: User = {
                 id: `user-${Date.now()}`,
-                username: newUsername.trim(),
-                passwordHash,
-                role: newRole,
-                fullName: newFullName.trim(),
+                username,
+                passwordHash: await hashPassword(String(data.get('password'))),
+                role: data.get('role') as UserRole,
+                fullName: String(data.get('fullName')).trim(),
                 createdAt: new Date().toISOString().split('T')[0],
             };
 
             onAddUser(newUser);
-            setNewUsername('');
-            setNewPassword('');
-            setNewFullName('');
-            setNewRole('user');
+            form.reset();
         } catch (err) {
             setAddError('Erro ao criar usuário');
         } finally {
@@ -145,41 +136,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setEditingUserId(null);
     };
 
-    const handleChangePassword = async () => {
+    const handleChangePassword = async (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
         setPasswordError('');
         setPasswordSuccess('');
 
-        if (!currentPassword.trim() || !newPasswordChange.trim() || !confirmPassword.trim()) {
-            setPasswordError('Preencha todos os campos');
-            return;
-        }
+        // `required` e `minLength` nos inputs cobrem campo vazio e senha curta
+        const form = e.currentTarget;
+        const data = new FormData(form);
+        const newPassword = String(data.get('newPassword'));
 
-        if (newPasswordChange !== confirmPassword) {
+        if (newPassword !== String(data.get('confirmPassword'))) {
             setPasswordError('As senhas não coincidem');
-            return;
-        }
-
-        if (newPasswordChange.length < 4) {
-            setPasswordError('A senha deve ter pelo menos 4 caracteres');
             return;
         }
 
         setIsChangingPassword(true);
         try {
-            const currentHash = await hashPassword(currentPassword);
+            const currentHash = await hashPassword(String(data.get('currentPassword')));
 
             if (currentUser && currentHash !== currentUser.passwordHash) {
                 setPasswordError('Senha atual incorreta');
                 return;
             }
 
-            const newHash = await hashPassword(newPasswordChange);
             if (currentUser) {
-                onUpdateUser(currentUser.id, { passwordHash: newHash });
+                onUpdateUser(currentUser.id, { passwordHash: await hashPassword(newPassword) });
                 setPasswordSuccess('Senha alterada com sucesso!');
-                setCurrentPassword('');
-                setNewPasswordChange('');
-                setConfirmPassword('');
+                form.reset();
             }
         } catch (err) {
             setPasswordError('Erro ao alterar senha');
@@ -206,7 +190,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <Modal isOpen={isOpen} onClose={onClose}>
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
                 {/* Header */}
@@ -337,20 +321,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             {/* Adicionar Usuário */}
                             <div>
                                 <h3 className="text-sm font-bold text-slate-700 mb-3">Adicionar Novo Usuário</h3>
-                                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
+                                <form onSubmit={handleAddUser} className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
                                     <div className="grid grid-cols-2 gap-3">
                                         <input
                                             type="text"
+                                            name="username"
+                                            required
                                             placeholder="Usuário"
-                                            value={newUsername}
-                                            onChange={(e) => setNewUsername(e.target.value)}
                                             className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red"
                                         />
                                         <input
                                             type="text"
+                                            name="fullName"
+                                            required
                                             placeholder="Nome Completo"
-                                            value={newFullName}
-                                            onChange={(e) => setNewFullName(e.target.value)}
                                             className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red"
                                         />
                                     </div>
@@ -358,9 +342,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                         <div className="relative">
                                             <input
                                                 type={showNewPassword ? 'text' : 'password'}
+                                                name="password"
+                                                required
                                                 placeholder="Senha"
-                                                value={newPassword}
-                                                onChange={(e) => setNewPassword(e.target.value)}
                                                 className="w-full px-3 py-2 pr-10 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red"
                                             />
                                             <button
@@ -372,8 +356,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                             </button>
                                         </div>
                                         <select
-                                            value={newRole}
-                                            onChange={(e) => setNewRole(e.target.value as 'admin' | 'operador' | 'user')}
+                                            name="role"
+                                            defaultValue="user"
                                             className="px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red bg-white"
                                         >
                                             <option value="user">Visualização</option>
@@ -390,14 +374,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     )}
 
                                     <button
-                                        onClick={handleAddUser}
+                                        type="submit"
                                         disabled={isAddingUser}
                                         className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-abb-red hover:brightness-110 text-white font-medium rounded-lg transition-all disabled:opacity-50"
                                     >
                                         <Plus size={16} />
                                         Adicionar Usuário
                                     </button>
-                                </div>
+                                </form>
                             </div>
 
                             {/* Lista de Usuários */}
@@ -437,7 +421,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                                     <>
                                                         <select
                                                             value={editingRole}
-                                                            onChange={(e) => setEditingRole(e.target.value as 'admin' | 'operador' | 'user')}
+                                                            onChange={(e) => setEditingRole(e.target.value as UserRole)}
                                                             className="px-2 py-1 text-xs border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-abb-red"
                                                         >
                                                             <option value="user">Visualização</option>
@@ -513,14 +497,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                             {/* Alterar Senha */}
                             <div>
                                 <h3 className="text-sm font-bold text-slate-700 mb-3">Alterar Senha</h3>
-                                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
+                                <form onSubmit={handleChangePassword} className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3">
                                     {/* Senha atual */}
                                     <div className="relative">
                                         <input
                                             type={showCurrentPassword ? 'text' : 'password'}
+                                            name="currentPassword"
+                                            required
                                             placeholder="Senha atual"
-                                            value={currentPassword}
-                                            onChange={(e) => setCurrentPassword(e.target.value)}
                                             className="w-full px-3 py-2 pr-10 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red"
                                         />
                                         <button
@@ -536,9 +520,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     <div className="relative">
                                         <input
                                             type={showNewPassword ? 'text' : 'password'}
+                                            name="newPassword"
+                                            required
+                                            minLength={4}
                                             placeholder="Nova senha"
-                                            value={newPasswordChange}
-                                            onChange={(e) => setNewPasswordChange(e.target.value)}
                                             className="w-full px-3 py-2 pr-10 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red"
                                         />
                                         <button
@@ -554,9 +539,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     <div className="relative">
                                         <input
                                             type={showConfirmPassword ? 'text' : 'password'}
+                                            name="confirmPassword"
+                                            required
                                             placeholder="Confirmar nova senha"
-                                            value={confirmPassword}
-                                            onChange={(e) => setConfirmPassword(e.target.value)}
                                             className="w-full px-3 py-2 pr-10 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red"
                                         />
                                         <button
@@ -583,14 +568,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     )}
 
                                     <button
-                                        onClick={handleChangePassword}
+                                        type="submit"
                                         disabled={isChangingPassword}
                                         className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-abb-red hover:brightness-110 text-white font-medium rounded-lg transition-all disabled:opacity-50"
                                     >
                                         <Lock size={16} />
                                         Alterar Senha
                                     </button>
-                                </div>
+                                </form>
                             </div>
                         </div>
                     )}
@@ -615,6 +600,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     </button>
                 </div>
             </div>
-        </div>
+        </Modal>
     );
 };

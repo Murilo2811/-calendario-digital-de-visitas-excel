@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, HelpCircle, FileSpreadsheet, LayoutGrid, CalendarDays, MousePointerClick } from 'lucide-react';
+import { Modal } from './Modal';
 
 interface HelpModalProps {
   isOpen: boolean;
@@ -7,10 +8,8 @@ interface HelpModalProps {
 }
 
 export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <Modal isOpen={isOpen} onClose={onClose}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
         
         {/* Header */}
@@ -66,6 +65,6 @@ export const HelpModal: React.FC<HelpModalProps> = ({ isOpen, onClose }) => {
             </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };

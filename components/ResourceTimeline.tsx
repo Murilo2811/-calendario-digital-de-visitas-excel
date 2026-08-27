@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Service, ServiceStatus, Technician, TechType } from '../types';
 import { getDaysInRange, getCalibrationStatus, getClientConflicts, checkPeriodExceeded } from '../utils';
+import { STATUS_STYLE } from '../constants';
 import { addDays } from 'date-fns/addDays';
 import { areIntervalsOverlapping } from 'date-fns/areIntervalsOverlapping';
 import { differenceInDays } from 'date-fns/differenceInDays';
@@ -265,19 +266,8 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
         continuesRight = false
     ) => {
 
-        let bgColor = 'bg-slate-400';
-        let textColor = 'text-white';
-
-        switch (service.status) {
-            case ServiceStatus.TRAINING_FIELD: bgColor = 'bg-slate-400'; break;
-            case ServiceStatus.PREDICTED: bgColor = 'bg-yellow-400'; textColor = 'text-yellow-900'; break;
-            case ServiceStatus.WITH_ORDER: bgColor = 'bg-orange-400'; break;
-            case ServiceStatus.CONFIRMED: bgColor = 'bg-green-600'; break;
-            case ServiceStatus.TRAINING: bgColor = 'bg-purple-500'; break;
-            case ServiceStatus.VACATION: bgColor = 'bg-blue-500'; break;
-            case ServiceStatus.NEGOTIATION: bgColor = 'bg-cyan-400'; textColor = 'text-cyan-900'; break;
-            case ServiceStatus.HOLIDAY: bgColor = 'bg-slate-800'; break;
-        }
+        const { bg: bgColor, text: textColor } = STATUS_STYLE[service.status]
+            ?? { bg: 'bg-slate-400', text: 'text-white' };
 
         const isDragging = dragState?.service.id === service.id;
         const isAnyDragging = dragState !== null;

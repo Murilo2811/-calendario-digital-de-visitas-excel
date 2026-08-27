@@ -1,4 +1,5 @@
-import { Service, ServiceStatus, Technician } from './types';
+import { ServiceStatus } from './types';
+import type { Service, Technician } from './types';
 import { addMonths } from 'date-fns/addMonths';
 import { differenceInDays } from 'date-fns/differenceInDays';
 import { eachDayOfInterval } from 'date-fns/eachDayOfInterval';
@@ -188,7 +189,7 @@ export const createRecurringCalibrationForecasts = (
   existingServices: Service[],
   maxMonths: number = 36
 ): Service[] => {
-  const period = baseService.period || 12;
+  const period = baseService.period;
   if (!period || period <= 0) return [];
 
   const start = parseISO(baseService.startDate);
@@ -249,9 +250,10 @@ export const createRecurringCalibrationForecasts = (
 export interface PeriodExceededResult {
   isExceeded: boolean;
   daysExceeded: number;
-  limitDate: Date | null;
   limitDateText: string;
 }
+
+const NO_DEADLINE: PeriodExceededResult = { isExceeded: false, daysExceeded: 0, limitDateText: '' };
 
 /**
  * Checks if a proposed start date for a service exceeds its expected calibration period deadline.
@@ -261,53 +263,25 @@ export const checkPeriodExceeded = (
   proposedStartDate: string
 ): PeriodExceededResult => {
   const period = service.period;
-  if (!period || period <= 0) {
-    return { isExceeded: false, daysExceeded: 0, limitDate: null, limitDateText: '' };
-  }
+  if (!period || period <= 0) return NO_DEADLINE;
 
   const proposedStart = parseISO(proposedStartDate);
-  if (!isValid(proposedStart)) {
-    return { isExceeded: false, daysExceeded: 0, limitDate: null, limitDateText: '' };
-  }
+  if (!isValid(proposedStart)) return NO_DEADLINE;
 
-  // Base date from lastCalibration or from the service's own creation/original context
-  let baseDate: Date | null = null;
-  if (service.lastCalibration) {
-    const lastCal = parseISO(service.lastCalibration);
-    if (isValid(lastCal)) {
-      baseDate = lastCal;
-    }
-  }
+  // Prazo conta a partir da última calibração; sem ela, do início do próprio serviço
+  const baseDate = [service.lastCalibration, service.startDate]
+    .map(d => (d ? parseISO(d) : null))
+    .find(d => d && isValid(d));
 
-  if (!baseDate && service.startDate) {
-    const start = parseISO(service.startDate);
-    if (isValid(start)) {
-      baseDate = start;
-    }
-  }
-
-  if (!baseDate) {
-    return { isExceeded: false, daysExceeded: 0, limitDate: null, limitDateText: '' };
-  }
+  if (!baseDate) return NO_DEADLINE;
 
   const limitDate = addMonths(baseDate, period);
-  const limitDateText = format(limitDate, 'dd/MM/yyyy', { locale: ptBR });
   const daysDiff = differenceInDays(proposedStart, limitDate);
 
-  if (daysDiff > 0) {
-    return {
-      isExceeded: true,
-      daysExceeded: daysDiff,
-      limitDate,
-      limitDateText
-    };
-  }
-
   return {
-    isExceeded: false,
-    daysExceeded: 0,
-    limitDate,
-    limitDateText
+    isExceeded: daysDiff > 0,
+    daysExceeded: Math.max(daysDiff, 0),
+    limitDateText: format(limitDate, 'dd/MM/yyyy', { locale: ptBR })
   };
 };
 
@@ -344,50 +318,6 @@ export const recalculateFutureForecastsFromNewDate = (
   );
 
   return [...filtered, ...newForecasts];
-};
-
-/**
- * Creates a future projected service (Cliente Previsto) based on a completed/confirmed service.
- */
-export const createNextCalibrationService = (
-  baseService: Service,
-  availableTechs: Technician[]
-): Service => {
-  const period = baseService.period || 6;
-  const start = parseISO(baseService.startDate);
-  const end = parseISO(baseService.endDate);
-
-  const newStart = isValid(start) ? addMonths(start, period) : new Date();
-  const newEnd = isValid(end) ? addMonths(end, period) : newStart;
-
-  const startDateStr = format(newStart, 'yyyy-MM-dd');
-  const endDateStr = format(newEnd, 'yyyy-MM-dd');
-  const week = getISOWeek(newStart);
-
-  // Preserve tech if available, otherwise take first available or fallback to base
-  const preferredTechId = baseService.technicianIds?.[0];
-  const isPreferredAvailable = availableTechs.some(t => t.id === preferredTechId);
-  const chosenTechIds = isPreferredAvailable && preferredTechId
-    ? [preferredTechId]
-    : (availableTechs.length > 0 ? [availableTechs[0].id] : (baseService.technicianIds || []));
-
-  return {
-    id: `svc-forecast-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-    week,
-    client: baseService.client,
-    manager: baseService.manager || '',
-    os: '', // OS em branco para agendamento
-    description: `Calibração Prevista (${period}m) - Ref. OS ${baseService.os || 'Anterior'}`,
-    hp: baseService.hp || 0,
-    ht: baseService.ht || 0,
-    hv: baseService.hv || 0,
-    startDate: startDateStr,
-    endDate: endDateStr,
-    technicianIds: chosenTechIds,
-    status: ServiceStatus.PREDICTED,
-    period: baseService.period,
-    lastCalibration: baseService.endDate || baseService.startDate
-  };
 };
 
 /**

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Modal } from './Modal';
 import { Client } from '../types';
 import { X, Zap, Calendar, Building2 } from 'lucide-react';
 import { format } from 'date-fns/format';
@@ -41,7 +42,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
   const labelClass = "block text-[10px] font-bold text-slate-500 uppercase mb-1.5";
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <Modal isOpen={isOpen} onClose={onClose}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
         
         <div className="flex items-center justify-between p-4 border-b bg-amber-50/50">
@@ -110,6 +111,6 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 };

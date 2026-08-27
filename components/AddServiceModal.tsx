@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Modal } from './Modal';
 import { Service, ServiceStatus, Technician, Client } from '../types';
 import { X, PlusCircle, Pencil, Trash2, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns/format';
@@ -98,7 +99,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   const labelClass = "block text-xs font-bold text-slate-600 mb-1.5";
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <Modal isOpen={isOpen} onClose={onClose}>
       <div className={`bg-white rounded-xl shadow-2xl w-full max-h-[90vh] overflow-y-auto flex flex-col ${serviceToEdit ? 'max-w-lg' : 'max-w-4xl'}`}>
 
         <div className="flex items-center justify-between p-5 border-b bg-white sticky top-0 z-10">
@@ -363,25 +364,12 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                   const examples = Array.from({ length: count }, (_, i) => `+${(i + 1) * p}m`).join(', ');
 
                   // Checa se a data inicial escolhida ultrapassa o prazo
+                  // (checkPeriodExceeded só lê period, lastCalibration e startDate)
                   const startDateStr = formData.startDate || '';
-                  const dummyService: Service = {
-                    id: 'temp-service',
-                    week: 0,
-                    client: formData.client || '',
-                    manager: formData.manager || '',
-                    os: formData.os || '',
-                    description: formData.description || '',
-                    hp: Number(formData.hp || 0),
-                    ht: Number(formData.ht || 0),
-                    hv: Number(formData.hv || 0),
-                    startDate: startDateStr,
-                    endDate: formData.endDate || '',
-                    technicianIds: formData.technicianIds || [],
-                    status: formData.status || ServiceStatus.PREDICTED,
-                    lastCalibration: formData.lastCalibration || '',
-                    period: p
-                  };
-                  const periodCheck = startDateStr ? checkPeriodExceeded(dummyService, startDateStr) : { isExceeded: false, daysExceeded: 0, limitDate: null, limitDateText: '' };
+                  const periodCheck = checkPeriodExceeded(
+                    { period: p, lastCalibration: formData.lastCalibration || '', startDate: startDateStr } as Service,
+                    startDateStr
+                  );
 
                   return (
                     <div className="mt-3 pt-3 border-t border-amber-200/60 flex flex-col gap-2">
@@ -486,6 +474,6 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </Modal>
   );
 };

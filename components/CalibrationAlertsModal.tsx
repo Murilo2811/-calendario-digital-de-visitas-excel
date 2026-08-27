@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { Modal } from './Modal';
 import { Service, Technician, Client } from '../types';
 import { getCalibrationStatus, CalibrationAlertLevel } from '../utils';
 import {
@@ -108,7 +109,7 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+    <Modal isOpen={isOpen} onClose={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
         
         {/* Header */}
@@ -351,6 +352,6 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };

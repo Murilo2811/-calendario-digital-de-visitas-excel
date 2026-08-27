@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Service, ServiceStatus, Technician, Client } from '../types';
 import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getClientConflicts, checkPeriodExceeded } from '../utils';
+import { STATUS_STYLE } from '../constants';
 import { Trash2, AlertCircle, Check, ChevronDown } from 'lucide-react';
 import { isFuture } from 'date-fns/isFuture';
 import { isValid } from 'date-fns/isValid';
@@ -148,17 +149,8 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
     };
 
     const getStatusColor = (status: ServiceStatus) => {
-        switch (status) {
-            case ServiceStatus.TRAINING_FIELD: return 'bg-slate-400 text-white';
-            case ServiceStatus.PREDICTED: return 'bg-yellow-400 text-yellow-900';
-            case ServiceStatus.WITH_ORDER: return 'bg-orange-400 text-white';
-            case ServiceStatus.CONFIRMED: return 'bg-green-600 text-white';
-            case ServiceStatus.TRAINING: return 'bg-purple-500 text-white';
-            case ServiceStatus.VACATION: return 'bg-blue-500 text-white';
-            case ServiceStatus.NEGOTIATION: return 'bg-cyan-400 text-cyan-900';
-            case ServiceStatus.HOLIDAY: return 'bg-slate-800 text-white';
-            default: return 'bg-slate-200 text-slate-600';
-        }
+        const style = STATUS_STYLE[status];
+        return style ? `${style.bg} ${style.text}` : 'bg-slate-200 text-slate-600';
     };
 
     const renderRows = (list: Service[]) => {

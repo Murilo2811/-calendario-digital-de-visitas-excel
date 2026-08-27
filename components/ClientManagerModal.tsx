@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Modal } from './Modal';
 import { Client } from '../types';
 import { X, Plus, Trash2, Building2, MapPin, Phone, Mail, FileText, User, Pencil, Check, Ban } from 'lucide-react';
 
@@ -75,7 +76,7 @@ export const ClientManagerModal: React.FC<ClientManagerModalProps> = ({
   const inputClass = "w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-abb-red/50 focus:border-abb-red/50 outline-none transition-colors";
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <Modal isOpen={isOpen} onClose={onClose}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
         
         <div className="flex items-center justify-between p-5 border-b bg-white">
@@ -208,6 +209,6 @@ export const ClientManagerModal: React.FC<ClientManagerModalProps> = ({
 
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };

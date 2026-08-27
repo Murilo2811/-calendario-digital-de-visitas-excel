@@ -4,7 +4,8 @@
  * Compatível apenas com Chrome e Edge.
  */
 
-import { Service, Technician, Client, User, ServiceStatus, TechType, UserRole } from './types';
+import { ServiceStatus, TechType } from './types';
+import type { Service, Technician, Client, User, UserRole } from './types';
 import * as XLSX from 'xlsx';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
@@ -246,132 +247,6 @@ const parseTechType = (value: string): TechType => {
 };
 
 /**
- * Lê serviços (atividades) do Excel
- */
-export const readServicesFromExcel = async (handle: FileHandle, technicians: Technician[]): Promise<Service[]> => {
-  const workbook = await readWorkbook(handle);
-  const sheet = workbook.Sheets[SHEET_SERVICES];
-
-  if (!sheet) {
-    console.log('Aba "Atividades" não encontrada, retornando lista vazia');
-    return [];
-  }
-
-  const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-
-  return data.map((row, index) => {
-    // Converter nomes de técnicos para IDs
-    const techString = String(row['Tecnicos'] || row['EXEC.'] || '');
-    const techNames = techString.split(',').map(s => s.trim()).filter(Boolean);
-    const technicianIds = techNames
-      .map(name => technicians.find(t => t.name === name || t.fullName === name)?.id)
-      .filter((id): id is string => !!id);
-
-    const startDateStr = parseExcelDate(row['Inicio'] || row['Data Inicio']);
-    const endDateStr = parseExcelDate(row['Fim'] || row['Data Fim']);
-    
-    // Auto-calcula semana correta da startDate importada
-    let weekNumber = Number(row['Semana'] || row['SEM.'] || 0);
-    const parsedStart = parseISO(startDateStr);
-    if (isValid(parsedStart)) {
-      weekNumber = getISOWeek(parsedStart);
-    }
-
-    return {
-      id: String(row['ID'] || `svc-imported-${index}-${Date.now()}`),
-      week: weekNumber,
-      client: String(row['Cliente'] || row['CLIENT'] || ''),
-      manager: String(row['Gerente'] || row['Manager'] || ''),
-      os: String(row['OS'] || ''),
-      description: String(row['Descricao'] || row['DESCRIPT'] || ''),
-      hp: Number(row['HP'] || 0),
-      ht: Number(row['HT'] || 0),
-      hv: Number(row['HV'] || 0),
-      startDate: startDateStr,
-      endDate: endDateStr,
-      technicianIds: technicianIds.length > 0 ? technicianIds : [],
-      status: parseStatus(String(row['Status'] || 'Cliente Previsto')),
-      lastCalibration: parseExcelDate(row['Ultima Calibracao'] || row['LAST.CAL']),
-      period: Number(row['Periodo'] || row['PERIOD'] || 0),
-    };
-  });
-};
-
-/**
- * Lê técnicos do Excel
- */
-export const readTechniciansFromExcel = async (handle: FileHandle): Promise<Technician[]> => {
-  const workbook = await readWorkbook(handle);
-  const sheet = workbook.Sheets[SHEET_TECHNICIANS];
-
-  if (!sheet) {
-    console.log('Aba "Tecnicos" não encontrada, retornando lista vazia');
-    return [];
-  }
-
-  const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-
-  return data.map((row, index) => ({
-    id: String(row['ID'] || `tech-${index}-${Date.now()}`),
-    name: String(row['Sigla'] || ''),
-    fullName: String(row['Nome Completo'] || row['Nome'] || ''),
-    type: parseTechType(String(row['Tipo'] || 'Internal')),
-    color: String(row['Cor'] || 'bg-red-100'),
-  }));
-};
-
-/**
- * Lê clientes do Excel
- */
-export const readClientsFromExcel = async (handle: FileHandle): Promise<Client[]> => {
-  const workbook = await readWorkbook(handle);
-  const sheet = workbook.Sheets[SHEET_CLIENTS];
-
-  if (!sheet) {
-    console.log('Aba "Clientes" não encontrada, retornando lista vazia');
-    return [];
-  }
-
-  const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-
-  return data.map((row, index) => ({
-    id: String(row['ID'] || `cli-${index}-${Date.now()}`),
-    name: String(row['Nome'] || row['Nome Fantasia'] || ''),
-    corporateName: row['Razao Social'] ? String(row['Razao Social']) : undefined,
-    cnpj: row['CNPJ'] ? String(row['CNPJ']) : undefined,
-    city: row['Cidade'] ? String(row['Cidade']) : undefined,
-    state: row['Estado'] ? String(row['Estado']) : undefined,
-    contactName: row['Contato'] ? String(row['Contato']) : undefined,
-    email: row['Email'] ? String(row['Email']) : undefined,
-    phone: row['Telefone'] ? String(row['Telefone']) : undefined,
-  }));
-};
-
-/**
- * Lê usuários do Excel
- */
-export const readUsersFromExcel = async (handle: FileHandle): Promise<User[]> => {
-  const workbook = await readWorkbook(handle);
-  const sheet = workbook.Sheets[SHEET_USERS];
-
-  if (!sheet) {
-    console.log('Aba "Usuarios" não encontrada, retornando lista vazia');
-    return [];
-  }
-
-  const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet);
-
-  return data.map((row, index) => ({
-    id: String(row['ID'] || `user-${index}-${Date.now()}`),
-    username: String(row['Usuario'] || ''),
-    passwordHash: String(row['SenhaHash'] || ''),
-    role: (String(row['Papel'] || 'user') as UserRole),
-    fullName: String(row['NomeCompleto'] || ''),
-    createdAt: parseExcelDate(row['CriadoEm']),
-  }));
-};
-
-/**
  * Extrai todos os dados estruturados a partir de um WorkBook XLSX
  */
 export const parseWorkbookData = (workbook: XLSX.WorkBook): {
@@ -525,6 +400,87 @@ export const loadFromNetworkServer = async (): Promise<{
 };
 
 /**
+ * Monta o workbook completo (4 abas) a partir do estado da aplicação.
+ * Formato lido de volta por parseWorkbookData — mantenha os dois em sincronia.
+ */
+export const buildWorkbook = (
+  services: Service[],
+  technicians: Technician[],
+  clients: Client[],
+  users: User[]
+): XLSX.WorkBook => {
+  const workbook = XLSX.utils.book_new();
+
+  const appendSheet = (
+    rows: Record<string, unknown>[],
+    name: string,
+    widths: number[]
+  ) => {
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    sheet['!cols'] = widths.map(wch => ({ wch }));
+    XLSX.utils.book_append_sheet(workbook, sheet, name);
+  };
+
+  appendSheet(services.map(s => ({
+    'ID': s.id,
+    'Semana': s.week,
+    'Cliente': s.client,
+    'Gerente': s.manager,
+    'OS': s.os,
+    'Descricao': s.description,
+    'HP': s.hp,
+    'HT': s.ht,
+    'HV': s.hv,
+    'Data Inicio': s.startDate,
+    'Data Fim': s.endDate,
+    'Tecnicos': s.technicianIds
+      .map(id => technicians.find(t => t.id === id)?.name || '')
+      .filter(Boolean)
+      .join(', '),
+    'Status': s.status,
+    'Ultima Calibracao': s.lastCalibration || '',
+    'Periodo': s.period || 0,
+  })), SHEET_SERVICES, [20, 8, 25, 12, 15, 25, 6, 6, 6, 12, 12, 20, 22, 15, 8]);
+
+  appendSheet(technicians.map(t => ({
+    'ID': t.id,
+    'Sigla': t.name,
+    'Nome Completo': t.fullName,
+    'Tipo': t.type,
+    'Cor': t.color,
+  })), SHEET_TECHNICIANS, [15, 10, 25, 12, 15]);
+
+  appendSheet(clients.map(c => ({
+    'ID': c.id,
+    'Nome': c.name,
+    'Razao Social': c.corporateName || '',
+    'CNPJ': c.cnpj || '',
+    'Cidade': c.city || '',
+    'Estado': c.state || '',
+    'Contato': c.contactName || '',
+    'Email': c.email || '',
+    'Telefone': c.phone || '',
+  })), SHEET_CLIENTS, [15, 25, 30, 18, 20, 5, 20, 25, 15]);
+
+  appendSheet(users.map(u => ({
+    'ID': u.id,
+    'Usuario': u.username,
+    'SenhaHash': u.passwordHash,
+    'Papel': u.role,
+    'NomeCompleto': u.fullName,
+    'CriadoEm': u.createdAt,
+  })), SHEET_USERS, [20, 25, 70, 10, 30, 12]);
+
+  return workbook;
+};
+
+/** Serializa o workbook para o blob .xlsx que vai para disco ou para a rede. */
+const workbookToBlob = (workbook: XLSX.WorkBook): Blob =>
+  new Blob([XLSX.write(workbook, { type: 'array', bookType: 'xlsx' })], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  });
+
+/**
  * Salva os dados diretamente na planilha central da rede via micro-servidor local
  */
 export const saveToNetworkServer = async (
@@ -534,77 +490,7 @@ export const saveToNetworkServer = async (
   users: User[]
 ): Promise<boolean> => {
   try {
-    const workbook = XLSX.utils.book_new();
-
-    // 1. Atividades
-    const servicesData = services.map(s => {
-      const techNames = s.technicianIds
-        .map(id => technicians.find(t => t.id === id)?.name || '')
-        .filter(Boolean)
-        .join(', ');
-      return {
-        'ID': s.id,
-        'Semana': s.week,
-        'Cliente': s.client,
-        'Gerente': s.manager,
-        'OS': s.os,
-        'Descricao': s.description,
-        'HP': s.hp,
-        'HT': s.ht,
-        'HV': s.hv,
-        'Data Inicio': s.startDate,
-        'Data Fim': s.endDate,
-        'Tecnicos': techNames,
-        'Status': s.status,
-        'Ultima Calibracao': s.lastCalibration || '',
-        'Periodo': s.period || 0,
-      };
-    });
-    const servicesSheet = XLSX.utils.json_to_sheet(servicesData);
-    XLSX.utils.book_append_sheet(workbook, servicesSheet, SHEET_SERVICES);
-
-    // 2. Técnicos
-    const techniciansData = technicians.map(t => ({
-      'ID': t.id,
-      'Sigla': t.name,
-      'Nome Completo': t.fullName,
-      'Tipo': t.type,
-      'Cor': t.color,
-    }));
-    const techniciansSheet = XLSX.utils.json_to_sheet(techniciansData);
-    XLSX.utils.book_append_sheet(workbook, techniciansSheet, SHEET_TECHNICIANS);
-
-    // 3. Clientes
-    const clientsData = clients.map(c => ({
-      'ID': c.id,
-      'Nome': c.name,
-      'Razao Social': c.corporateName || '',
-      'CNPJ': c.cnpj || '',
-      'Cidade': c.city || '',
-      'Estado': c.state || '',
-      'Contato': c.contactName || '',
-      'Email': c.email || '',
-      'Telefone': c.phone || '',
-    }));
-    const clientsSheet = XLSX.utils.json_to_sheet(clientsData);
-    XLSX.utils.book_append_sheet(workbook, clientsSheet, SHEET_CLIENTS);
-
-    // 4. Usuários
-    const usersData = users.map(u => ({
-      'ID': u.id,
-      'Usuario': u.username,
-      'SenhaHash': u.passwordHash,
-      'Papel': u.role,
-      'NomeCompleto': u.fullName,
-      'CriadoEm': u.createdAt,
-    }));
-    const usersSheet = XLSX.utils.json_to_sheet(usersData);
-    XLSX.utils.book_append_sheet(workbook, usersSheet, SHEET_USERS);
-
-    const excelBuffer = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
-    const blob = new Blob([excelBuffer], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    });
+    const blob = workbookToBlob(buildWorkbook(services, technicians, clients, users));
 
     const res = await fetch('/api/excel/save', {
       method: 'POST',
@@ -629,159 +515,10 @@ export const saveAllToExcel = async (
   clients: Client[],
   users: User[] = []
 ): Promise<void> => {
-  // Criar workbook novo
-  const workbook = XLSX.utils.book_new();
-
-  // --- Aba de Atividades ---
-  const servicesData = services.map(s => {
-    const techNames = s.technicianIds
-      .map(id => technicians.find(t => t.id === id)?.name || '')
-      .filter(Boolean)
-      .join(', ');
-
-    return {
-      'ID': s.id,
-      'Semana': s.week,
-      'Cliente': s.client,
-      'Gerente': s.manager,
-      'OS': s.os,
-      'Descricao': s.description,
-      'HP': s.hp,
-      'HT': s.ht,
-      'HV': s.hv,
-      'Inicio': s.startDate,
-      'Fim': s.endDate,
-      'Tecnicos': techNames,
-      'Status': s.status,
-      'Ultima Calibracao': s.lastCalibration || '',
-      'Periodo': s.period || 0,
-    };
-  });
-
-  const servicesSheet = XLSX.utils.json_to_sheet(servicesData);
-  servicesSheet['!cols'] = [
-    { wch: 20 }, // ID
-    { wch: 8 },  // Semana
-    { wch: 25 }, // Cliente
-    { wch: 12 }, // Gerente
-    { wch: 15 }, // OS
-    { wch: 25 }, // Descricao
-    { wch: 6 },  // HP
-    { wch: 6 },  // HT
-    { wch: 6 },  // HV
-    { wch: 12 }, // Inicio
-    { wch: 12 }, // Fim
-    { wch: 20 }, // Tecnicos
-    { wch: 22 }, // Status
-    { wch: 15 }, // Ultima Calibracao
-    { wch: 8 },  // Periodo
-  ];
-  XLSX.utils.book_append_sheet(workbook, servicesSheet, SHEET_SERVICES);
-
-  // --- Aba de Técnicos ---
-  const techniciansData = technicians.map(t => ({
-    'ID': t.id,
-    'Sigla': t.name,
-    'Nome Completo': t.fullName,
-    'Tipo': t.type,
-    'Cor': t.color,
-  }));
-
-  const techniciansSheet = XLSX.utils.json_to_sheet(techniciansData);
-  techniciansSheet['!cols'] = [
-    { wch: 15 }, // ID
-    { wch: 10 }, // Sigla
-    { wch: 25 }, // Nome Completo
-    { wch: 12 }, // Tipo
-    { wch: 15 }, // Cor
-  ];
-  XLSX.utils.book_append_sheet(workbook, techniciansSheet, SHEET_TECHNICIANS);
-
-  // --- Aba de Clientes ---
-  const clientsData = clients.map(c => ({
-    'ID': c.id,
-    'Nome': c.name,
-    'Razao Social': c.corporateName || '',
-    'CNPJ': c.cnpj || '',
-    'Cidade': c.city || '',
-    'Estado': c.state || '',
-    'Contato': c.contactName || '',
-    'Email': c.email || '',
-    'Telefone': c.phone || '',
-  }));
-
-  const clientsSheet = XLSX.utils.json_to_sheet(clientsData);
-  clientsSheet['!cols'] = [
-    { wch: 15 }, // ID
-    { wch: 25 }, // Nome
-    { wch: 30 }, // Razao Social
-    { wch: 18 }, // CNPJ
-    { wch: 20 }, // Cidade
-    { wch: 5 },  // Estado
-    { wch: 20 }, // Contato
-    { wch: 25 }, // Email
-    { wch: 15 }, // Telefone
-  ];
-  XLSX.utils.book_append_sheet(workbook, clientsSheet, SHEET_CLIENTS);
-
-  // --- Aba de Usuários ---
-  const usersData = users.map(u => ({
-    'ID': u.id,
-    'Usuario': u.username,
-    'SenhaHash': u.passwordHash,
-    'Papel': u.role,
-    'NomeCompleto': u.fullName,
-    'CriadoEm': u.createdAt,
-  }));
-
-  const usersSheet = XLSX.utils.json_to_sheet(usersData);
-  usersSheet['!cols'] = [
-    { wch: 20 }, // ID
-    { wch: 25 }, // Usuario
-    { wch: 70 }, // SenhaHash
-    { wch: 10 }, // Papel
-    { wch: 30 }, // NomeCompleto
-    { wch: 12 }, // CriadoEm
-  ];
-  XLSX.utils.book_append_sheet(workbook, usersSheet, SHEET_USERS);
-
-  // Escrever no arquivo
-  const excelBuffer = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
-  const blob = new Blob([excelBuffer], {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-  });
+  const blob = workbookToBlob(buildWorkbook(services, technicians, clients, users));
 
   // Usar File System Access API para escrever
   const writable = await handle.createWritable();
   await writable.write(blob);
   await writable.close();
-};
-
-/**
- * Verifica se o arquivo Excel existe e tem a estrutura correta
- */
-export const validateExcelStructure = async (handle: FileHandle): Promise<{
-  isValid: boolean;
-  hasServices: boolean;
-  hasTechnicians: boolean;
-  hasClients: boolean;
-}> => {
-  try {
-    const workbook = await readWorkbook(handle);
-
-    return {
-      isValid: true,
-      hasServices: !!workbook.Sheets[SHEET_SERVICES],
-      hasTechnicians: !!workbook.Sheets[SHEET_TECHNICIANS],
-      hasClients: !!workbook.Sheets[SHEET_CLIENTS],
-    };
-  } catch (error) {
-    console.error('Erro ao validar estrutura do Excel:', error);
-    return {
-      isValid: false,
-      hasServices: false,
-      hasTechnicians: false,
-      hasClients: false,
-    };
-  }
 };
