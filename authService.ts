@@ -41,7 +41,9 @@ export const validateUser = async (
  * Cria usuário admin padrão
  */
 export const createDefaultAdmin = async (): Promise<User> => {
-    const passwordHash = await hashPassword('1612good2Bme');
+    // Senha de bootstrap: vale so para planilha nova, e deve ser trocada no primeiro
+    // acesso (Configurações > Conta > Alterar Senha).
+    const passwordHash = await hashPassword('Admin@123');
 
     return {
         id: 'user-admin-001',
