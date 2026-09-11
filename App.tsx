@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
 import { Service, Technician, ViewMode, ServiceStatus, TechType, Client, User, AppSettings } from './types';
 import { TECHNICIANS, INITIAL_CLIENTS, STATUS_STYLE } from './constants';
 import { ServiceGrid } from './components/ServiceGrid';
@@ -74,7 +74,9 @@ import {
     LogOut,
     Minus,
     Bell,
-    AlertTriangle
+    AlertTriangle,
+    Save,
+    Check
 } from 'lucide-react';
 
 // Helper to sort technicians: Internal first, then Alphabetical by Name
@@ -124,12 +126,13 @@ const App: React.FC = () => {
         return { expired, expiringSoon, totalAlerts: expired + expiringSoon };
     }, [services]);
 
-    // Excel Connection State
     const [excelHandle, setExcelHandle] = useState<FileSystemFileHandle | null>(null);
     const [isExcelConnected, setIsExcelConnected] = useState(false);
     const [isExcelLoading, setIsExcelLoading] = useState(false);
     const [excelFileName, setExcelFileName] = useState<string>('');
     const [isNetworkServer, setIsNetworkServer] = useState(false);
+
+    const [isSaving, setIsSaving] = useState(false);
 
     // Toast State
     const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
@@ -159,6 +162,17 @@ const App: React.FC = () => {
     // Auth State
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [users, setUsers] = useState<User[]>([]);
+
+    // "Não salvo" é derivado, não marcado à mão: alguma lista trocou de referência
+    // desde o último ponto salvo (o estado é imutável, então referência basta).
+    const [saved, setSaved] = useState({ services, technicians, clients, users });
+    const hasUnsavedChanges = services !== saved.services || technicians !== saved.technicians
+        || clients !== saved.clients || users !== saved.users;
+    const markSaved = () => setSaved({ services, technicians, clients, users });
+    // Cargas preenchem o estado por setters que só valem no próximo render; o ponto salvo
+    // é tirado depois que eles comitam (layout effect: antes da pintura, sem piscar "Salvar").
+    const [loadCount, setLoadCount] = useState(0);
+    useLayoutEffect(markSaved, [loadCount]);
     const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
     // App Settings with localStorage
@@ -200,6 +214,7 @@ const App: React.FC = () => {
 
                         setExcelFileName(data.fileName || 'Calendario_Digital_Base.xlsx');
                         setIsExcelConnected(true);
+                        setLoadCount(n => n + 1);
                         showToast('Conectado à planilha central da rede!');
                     } else {
                         // Se o arquivo ainda não existe na rede, cria a planilha inicial automaticamente
@@ -208,6 +223,7 @@ const App: React.FC = () => {
                         await saveToNetworkServer([], sortTechnicians(TECHNICIANS), INITIAL_CLIENTS, [defaultAdmin]);
                         setExcelFileName('Calendario_Digital_Base.xlsx');
                         setIsExcelConnected(true);
+                        setLoadCount(n => n + 1);
                         showToast('Planilha central criada na rede!');
                     }
                     setIsExcelLoading(false);
@@ -233,29 +249,6 @@ const App: React.FC = () => {
         autoConnectNetworkServer();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-
-    // --- Excel Functions ---
-    const saveToExcelIfConnected = useCallback(async (
-        newServices: Service[],
-        newTechnicians: Technician[],
-        newClients: Client[],
-        newUsers: User[]
-    ) => {
-        if (isNetworkServer) {
-            try {
-                await saveToNetworkServer(newServices, newTechnicians, newClients, newUsers);
-            } catch (error) {
-                console.error('Erro ao salvar no Excel da rede:', error);
-            }
-        } else if (excelHandle && isExcelConnected) {
-            try {
-                await saveAllToExcel(excelHandle, newServices, newTechnicians, newClients, newUsers);
-            } catch (error) {
-                console.error('Erro ao salvar no Excel:', error);
-                showToast('Erro ao salvar no Excel!');
-            }
-        }
-    }, [isNetworkServer, excelHandle, isExcelConnected]);
 
     const handleConnectExcel = async () => {
         if (!isFileSystemAccessSupported()) {
@@ -291,6 +284,7 @@ const App: React.FC = () => {
                 setExcelHandle(handle);
                 setExcelFileName(handle.name);
                 setIsExcelConnected(true);
+                setLoadCount(n => n + 1);
 
                 // Salvar nome do arquivo nas configurações
                 setAppSettings(prev => ({ ...prev, lastExcelFileName: handle.name }));
@@ -325,6 +319,7 @@ const App: React.FC = () => {
                 setExcelHandle(handle);
                 setExcelFileName(handle.name);
                 setIsExcelConnected(true);
+                setLoadCount(n => n + 1);
                 showToast(`Novo arquivo criado: ${handle.name}`);
             }
         } catch (error) {
@@ -335,24 +330,70 @@ const App: React.FC = () => {
         }
     };
 
-    // O auto-save já gravou tudo antes deste clique, então desconectar é só encerrar a sessão.
     const handleDisconnectExcel = () => {
+        if (hasUnsavedChanges) {
+            const confirmLeave = window.confirm(
+                'Você possui alterações pendentes não salvas!\n\nDeseja realmente desconectar e descartar as alterações?'
+            );
+            if (!confirmLeave) return;
+        }
         setExcelHandle(null);
         setExcelFileName('');
         setIsExcelConnected(false);
+        markSaved();
         showToast('Desconectado do arquivo Excel');
         setCurrentUser(null); // Logout ao desconectar
     };
 
-    // Auto-save quando dados mudam e está conectado (via handle local OU servidor de rede)
-    useEffect(() => {
-        if (isExcelConnected && (excelHandle || isNetworkServer)) {
-            const timeoutId = setTimeout(() => {
-                saveToExcelIfConnected(services, technicians, clients, users);
-            }, 500); // Debounce de 500ms
-            return () => clearTimeout(timeoutId);
+    // --- Salvamento Manual Controlado ---
+    const handleManualSave = async () => {
+        if (isSaving) return;
+        setIsSaving(true);
+        try {
+            if (isNetworkServer) {
+                const ok = await saveToNetworkServer(services, technicians, clients, users);
+                if (ok) {
+                    markSaved();
+                    showToast('Todas as alterações foram salvas na rede!');
+                } else {
+                    showToast('Erro ao salvar no servidor de rede.');
+                }
+            } else if (excelHandle) {
+                await saveAllToExcel(excelHandle, services, technicians, clients, users);
+                markSaved();
+                showToast('Todas as alterações foram salvas no arquivo Excel!');
+            }
+        } catch (error) {
+            console.error('Erro ao salvar alterações:', error);
+            showToast('Erro ao salvar as alterações no Excel.');
+        } finally {
+            setIsSaving(false);
         }
-    }, [services, technicians, clients, users, isExcelConnected, excelHandle, isNetworkServer, saveToExcelIfConnected]);
+    };
+
+    // Atalho de Teclado global: Ctrl+S ou Cmd+S para salvar
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+                e.preventDefault();
+                handleManualSave();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [handleManualSave]);
+
+    // Alerta caso tente fechar ou recarregar a janela com alterações não salvas
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (hasUnsavedChanges) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [hasUnsavedChanges]);
 
     // --- Date Logic ---
     const { rangeStart, rangeEnd } = useMemo(() => {
@@ -1073,6 +1114,41 @@ const App: React.FC = () => {
                                     </button>
                                 </div>
                             )}
+
+                            {/* Botão Salvar com Indicador de Alterações */}
+                            <button
+                                onClick={handleManualSave}
+                                disabled={isSaving}
+                                title={
+                                    hasUnsavedChanges
+                                        ? 'Existem alterações não salvas. Clique para salvar (Ctrl+S)'
+                                        : 'Todas as alterações foram salvas (Ctrl+S)'
+                                }
+                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all shadow-sm ${
+                                    isSaving
+                                        ? 'bg-amber-50 border-amber-300 text-amber-800 opacity-90 cursor-wait'
+                                        : hasUnsavedChanges
+                                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-emerald-200'
+                                        : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200'
+                                }`}
+                            >
+                                {isSaving ? (
+                                    <>
+                                        <Loader2 size={15} className="animate-spin text-amber-700" />
+                                        <span>Salvando...</span>
+                                    </>
+                                ) : hasUnsavedChanges ? (
+                                    <>
+                                        <Save size={15} />
+                                        <span>Salvar</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Check size={15} className="text-emerald-600" />
+                                        <span>Salvo</span>
+                                    </>
+                                )}
+                            </button>
 
                             <div className="h-8 w-px bg-slate-200 mx-1"></div>
 
