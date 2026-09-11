@@ -56,6 +56,9 @@ export interface Service {
   // Calibration Logic
   lastCalibration?: string; // ISO Date YYYY-MM-DD
   period?: number; // Months
+
+  // General Notes / Comments
+  comments?: string;
 }
 
 export type ViewMode = 'grid' | 'timeline';

@@ -40,7 +40,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
     technicianIds: [] as string[],
     status: ServiceStatus.PREDICTED,
     period: 6,
-    lastCalibration: ''
+    lastCalibration: '',
+    comments: ''
   });
 
   const [formData, setFormData] = useState<Partial<Service>>(getInitialFormData());
@@ -53,7 +54,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
           startDate: serviceToEdit.startDate,
           endDate: serviceToEdit.endDate,
           lastCalibration: serviceToEdit.lastCalibration || '',
-          technicianIds: serviceToEdit.technicianIds || []
+          technicianIds: serviceToEdit.technicianIds || [],
+          comments: serviceToEdit.comments || ''
         });
       } else {
         // Pre-select first tech if none
@@ -177,6 +179,18 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                     onChange={e => handleChange('endDate', e.target.value)}
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className={labelClass}>Comentários / Observações da Visita</label>
+                <textarea
+                  rows={3}
+                  readOnly={!canEdit}
+                  placeholder="Instruções técnicas, detalhes da calibração, contato do cliente, orientações para os técnicos..."
+                  className={`w-full bg-white border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red outline-none resize-y transition-all placeholder:text-slate-400 ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
+                  value={formData.comments || ''}
+                  onChange={e => handleChange('comments', e.target.value)}
+                />
               </div>
 
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">

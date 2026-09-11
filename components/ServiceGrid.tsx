@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Service, ServiceStatus, Technician, Client } from '../types';
 import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getClientConflicts, checkPeriodExceeded } from '../utils';
 import { STATUS_STYLE } from '../constants';
-import { Trash2, AlertCircle, Check, ChevronDown } from 'lucide-react';
+import { Trash2, AlertCircle, Check, ChevronDown, MessageSquare, X } from 'lucide-react';
 import { isFuture } from 'date-fns/isFuture';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
@@ -100,6 +100,7 @@ const TechnicianMultiSelect = ({
 };
 
 export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians, clients, onUpdate, onDelete, canEdit = true }) => {
+    const [activeCommentService, setActiveCommentService] = useState<{ id: string; client: string; os: string; comments: string } | null>(null);
 
     // Reusable Input Cell Component for Text/Numbers
     const EditableCell = ({
@@ -361,6 +362,37 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                         <span className={`text-xs truncate ${forecastColor}`}>{forecastText}</span>
                     </td>
 
+                    {/* Comments Column */}
+                    <td className="px-2 py-1 border-b border-slate-100 text-left w-40 min-w-[150px]">
+                        <button
+                            type="button"
+                            onClick={() => setActiveCommentService({
+                                id: service.id,
+                                client: service.client,
+                                os: service.os,
+                                comments: service.comments || ''
+                            })}
+                            className={`w-full flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-all text-left group/btn ${
+                                service.comments && service.comments.trim()
+                                    ? 'bg-amber-50 hover:bg-amber-100/90 text-slate-800 border border-amber-200 shadow-2xs'
+                                    : 'hover:bg-slate-100 text-slate-400 hover:text-slate-600 border border-transparent'
+                            }`}
+                            title={service.comments ? service.comments : 'Adicionar anotação'}
+                        >
+                            <MessageSquare
+                                size={13}
+                                className={`shrink-0 ${
+                                    service.comments && service.comments.trim()
+                                        ? 'text-amber-600 fill-amber-500/20'
+                                        : 'text-slate-400 group-hover/btn:text-slate-600'
+                                }`}
+                            />
+                            <span className="truncate flex-1">
+                                {service.comments && service.comments.trim() ? service.comments : '+ Obs'}
+                            </span>
+                        </button>
+                    </td>
+
                     {canEdit && (
                         <td className="px-2 w-10 text-center border-b border-slate-200">
                             <button
@@ -378,7 +410,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
     };
 
     return (
-        <div className="flex flex-col h-full bg-white">
+        <div className="flex flex-col h-full bg-white relative">
             <datalist id="client-options">
                 {clients.map(c => <option key={c.id} value={c.name} />)}
             </datalist>
@@ -394,7 +426,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
             </datalist>
 
             <div className="overflow-auto flex-grow pb-32"> {/* Added padding bottom for dropdown space */}
-                <table className="w-full min-w-[1650px] text-xs whitespace-nowrap border-collapse">
+                <table className="w-full min-w-[1800px] text-xs whitespace-nowrap border-collapse">
                     <thead className="sticky top-0 z-30">
                         <tr className="bg-slate-50 shadow-sm">
                             <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-12 min-w-[48px]">Sem.</th>
@@ -413,6 +445,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                             <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-36 min-w-[145px]">Próx. Calibração</th>
                             <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-36 min-w-[140px]">Status</th>
                             <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-44 min-w-[170px]">Previsão</th>
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-40 min-w-[150px]">Comentários</th>
                             {canEdit && <th className="w-12 min-w-[48px] border-b border-slate-200"></th>}
                         </tr>
                     </thead>
@@ -421,6 +454,69 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                     </tbody>
                 </table>
             </div>
+
+            {/* Comments Modal */}
+            {activeCommentService && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+                    <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                        <div className="px-5 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg">
+                                    <MessageSquare size={18} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-800">Comentários da Atividade</h3>
+                                    <p className="text-xs text-slate-500 font-medium">
+                                        {activeCommentService.client} {activeCommentService.os ? `• OS ${activeCommentService.os}` : ''}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setActiveCommentService(null)}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200 transition-colors"
+                                title="Fechar"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="p-5 space-y-2">
+                            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                Observações e Notas Técnicas
+                            </label>
+                            <textarea
+                                rows={6}
+                                value={activeCommentService.comments}
+                                onChange={(e) => setActiveCommentService({ ...activeCommentService, comments: e.target.value })}
+                                readOnly={!canEdit}
+                                placeholder="Digite anotações, detalhes da calibração, contato do cliente, orientações para os técnicos..."
+                                className="w-full text-sm p-3 border border-slate-200 rounded-lg focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red outline-none resize-y transition-all placeholder:text-slate-400 leading-relaxed"
+                            />
+                            <p className="text-[11px] text-slate-400 text-right">
+                                {activeCommentService.comments.length} caractere(s)
+                            </p>
+                        </div>
+                        <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2">
+                            <button
+                                onClick={() => setActiveCommentService(null)}
+                                className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                            >
+                                Fechar
+                            </button>
+                            {canEdit && (
+                                <button
+                                    onClick={() => {
+                                        onUpdate(activeCommentService.id, 'comments', activeCommentService.comments);
+                                        setActiveCommentService(null);
+                                    }}
+                                    className="px-4 py-2 text-xs font-semibold bg-abb-red hover:bg-red-700 text-white rounded-lg shadow-sm transition-colors cursor-pointer"
+                                >
+                                    Salvar Anotação
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

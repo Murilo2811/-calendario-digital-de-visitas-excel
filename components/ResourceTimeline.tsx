@@ -300,7 +300,8 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
             overlapTooltipExtra = `\n⚠️ SOBREPOSIÇÃO DE CLIENTE: Há ${clientConflicts.length} outra(s) visita(s) agendada(s) para este cliente no mesmo período.`;
         }
 
-        const tooltipText = `Cliente: ${service.client}\nOS: ${service.os || 'N/A'}\nDescrição: ${service.description || 'N/A'}\nPeríodo: ${format(parseISO(service.startDate), 'dd/MM/yy')} - ${format(parseISO(service.endDate), 'dd/MM/yy')}${calTooltipExtra}${overlapTooltipExtra}`;
+        const commentsTooltipExtra = service.comments && service.comments.trim() ? `\n📝 Comentários: ${service.comments}` : '';
+        const tooltipText = `Cliente: ${service.client}\nOS: ${service.os || 'N/A'}\nDescrição: ${service.description || 'N/A'}\nPeríodo: ${format(parseISO(service.startDate), 'dd/MM/yy')} - ${format(parseISO(service.endDate), 'dd/MM/yy')}${commentsTooltipExtra}${calTooltipExtra}${overlapTooltipExtra}`;
 
         const isCompact = totalLanesInGroup > 1;
 
@@ -333,6 +334,9 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                 <div className="flex items-center gap-1 min-w-0">
                     {hasClientOverlap && (
                         <span className="flex-shrink-0 text-amber-300 text-[10px] font-bold" title="Sobreposição de Cliente">⚠️</span>
+                    )}
+                    {service.comments && service.comments.trim() && (
+                        <span className="flex-shrink-0 text-[10px]" title={`Comentário: ${service.comments}`}>💬</span>
                     )}
                     {isPeriodExceeded && (
                         <span className="flex-shrink-0 px-1 py-0.2 bg-red-600 text-white rounded text-[8px] font-black uppercase tracking-wider animate-pulse" title={`Prazo Excedido (+${periodCheck.daysExceeded} dias)`}>+{periodCheck.daysExceeded}D</span>

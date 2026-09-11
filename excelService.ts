@@ -330,6 +330,7 @@ export const parseWorkbookData = (workbook: XLSX.WorkBook): {
           status: parseStatus(String(row['Status'] || 'Cliente Previsto')),
           lastCalibration: parseExcelDate(row['Ultima Calibracao'] || row['LAST.CAL']),
           period: Number(row['Periodo'] || row['PERIOD'] || 0),
+          comments: String(row['Comentários'] || row['Comentarios'] || row['Observacoes'] || row['Observações'] || row['Comments'] || ''),
         };
       })
     : [];
@@ -440,7 +441,8 @@ export const buildWorkbook = (
     'Status': s.status,
     'Ultima Calibracao': s.lastCalibration || '',
     'Periodo': s.period || 0,
-  })), SHEET_SERVICES, [20, 8, 25, 12, 15, 25, 6, 6, 6, 12, 12, 20, 22, 15, 8]);
+    'Comentários': s.comments || '',
+  })), SHEET_SERVICES, [20, 8, 25, 12, 15, 25, 6, 6, 6, 12, 12, 20, 22, 15, 8, 35]);
 
   appendSheet(technicians.map(t => ({
     'ID': t.id,
