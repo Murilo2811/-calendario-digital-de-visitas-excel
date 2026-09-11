@@ -134,12 +134,14 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
             }
         };
 
+        const alignClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
+
         return (
             <input
                 type={type}
-                className={`w-full h-full bg-transparent border border-transparent rounded-md px-2 focus:bg-white focus:border-abb-red/50 focus:ring-1 focus:ring-abb-red/50 outline-none transition-all text-${align} ${className} ${!canEdit ? 'cursor-default' : ''}`}
+                className={`w-full h-full bg-transparent border border-transparent rounded-md px-1.5 focus:bg-white focus:border-abb-red/50 focus:ring-1 focus:ring-abb-red/50 outline-none transition-all ${alignClass} ${className} ${!canEdit ? 'cursor-default' : ''}`}
                 value={tempValue}
-                onChange={(e) => setTempValue(type === 'number' ? e.target.valueAsNumber || 0 : e.target.value)}
+                onChange={(e) => setTempValue(type === 'number' ? (e.target.value === '' ? '' : e.target.valueAsNumber || 0) : e.target.value)}
                 onBlur={handleBlur}
                 onKeyDown={handleKeyDown}
                 list={list}
@@ -210,7 +212,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                         />
                     </td>
 
-                    <td className="p-0 h-10 border-b border-slate-100">
+                    <td className="p-0 h-10 border-b border-slate-100 w-28 min-w-[100px]">
                         <EditableCell
                             value={service.os}
                             onChange={(v) => onUpdate(service.id, 'os', v)}
@@ -218,7 +220,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                         />
                     </td>
 
-                    <td className="p-0 h-10 border-b border-slate-100">
+                    <td className="p-0 h-10 border-b border-slate-100 min-w-[160px]">
                         <EditableCell
                             value={service.description}
                             onChange={(v) => onUpdate(service.id, 'description', v)}
@@ -226,41 +228,41 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                         />
                     </td>
 
-                    <td className="p-0 h-10 border-b border-slate-100 text-center">
+                    <td className="p-0 h-10 border-b border-slate-100 text-center w-16 min-w-[60px]">
                         <EditableCell
                             type="number"
                             value={service.hp}
                             onChange={(v) => onUpdate(service.id, 'hp', v)}
                             align="center"
-                            className="text-slate-500"
+                            className="text-slate-600 font-medium"
                         />
                     </td>
 
-                    <td className="p-0 h-10 border-b border-slate-100 text-center">
+                    <td className="p-0 h-10 border-b border-slate-100 text-center w-16 min-w-[60px]">
                         <EditableCell
                             type="number"
                             value={service.ht}
                             onChange={(v) => onUpdate(service.id, 'ht', v)}
                             align="center"
-                            className="text-slate-500"
+                            className="text-slate-600 font-medium"
                         />
                     </td>
 
-                    <td className="p-0 h-10 border-b border-slate-100 text-center">
+                    <td className="p-0 h-10 border-b border-slate-100 text-center w-16 min-w-[60px]">
                         <EditableCell
                             type="number"
                             value={service.hv}
                             onChange={(v) => onUpdate(service.id, 'hv', v)}
                             align="center"
-                            className="text-slate-500"
+                            className="text-slate-600 font-medium"
                         />
                     </td>
 
                     {/* Start Date Column */}
-                    <td className="p-0 border-b border-slate-100 relative h-10">
+                    <td className="p-0 border-b border-slate-100 relative h-10 w-32 min-w-[125px]">
                         <input
                             type="date"
-                            className={`w-full h-full bg-transparent text-center text-xs text-slate-700 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none transition-colors ${!isStartDateValid ? 'bg-red-50 text-red-600 font-bold' : ''} ${!canEdit ? 'cursor-default' : ''}`}
+                            className={`grid-date-input w-full h-full bg-transparent text-center text-xs text-slate-700 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none transition-colors px-1 ${!isStartDateValid ? 'bg-red-50 text-red-600 font-bold' : ''} ${!canEdit ? 'cursor-default' : ''}`}
                             value={service.startDate}
                             onChange={(e) => onUpdate(service.id, 'startDate', e.target.value)}
                             readOnly={!canEdit}
@@ -273,10 +275,10 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                     </td>
 
                     {/* End Date Column */}
-                    <td className="p-0 border-b border-slate-100 relative h-10">
+                    <td className="p-0 border-b border-slate-100 relative h-10 w-32 min-w-[125px]">
                         <input
                             type="date"
-                            className={`w-full h-full bg-transparent text-center text-xs text-slate-700 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none transition-colors ${!isEndDateValid || isRangeInvalid ? 'bg-red-50 text-red-600 font-bold' : ''} ${!canEdit ? 'cursor-default' : ''}`}
+                            className={`grid-date-input w-full h-full bg-transparent text-center text-xs text-slate-700 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none transition-colors px-1 ${!isEndDateValid || isRangeInvalid ? 'bg-red-50 text-red-600 font-bold' : ''} ${!canEdit ? 'cursor-default' : ''}`}
                             value={service.endDate}
                             onChange={(e) => onUpdate(service.id, 'endDate', e.target.value)}
                             readOnly={!canEdit}
@@ -289,7 +291,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                     </td>
 
                     {/* Technician Multi-Select Column */}
-                    <td className="p-0 h-10 border-b border-slate-100 text-center relative z-20">
+                    <td className="p-0 h-10 border-b border-slate-100 text-center relative z-20 w-28 min-w-[100px]">
                         <TechnicianMultiSelect
                             selectedIds={service.technicianIds || []}
                             technicians={technicians}
@@ -298,10 +300,10 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                         />
                     </td>
 
-                    <td className="p-0 border-b border-slate-100 relative h-10">
+                    <td className="p-0 border-b border-slate-100 relative h-10 w-32 min-w-[125px]">
                         <input
                             type="date"
-                            className={`w-full h-full bg-transparent text-center text-[10px] text-slate-500 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none ${!canEdit ? 'cursor-default' : ''}`}
+                            className={`grid-date-input w-full h-full bg-transparent text-center text-xs text-slate-500 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none px-1 ${!canEdit ? 'cursor-default' : ''}`}
                             value={service.lastCalibration || ''}
                             onChange={(e) => onUpdate(service.id, 'lastCalibration', e.target.value)}
                             readOnly={!canEdit}
@@ -309,22 +311,22 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                     </td>
 
                     {/* Period Column */}
-                    <td className="p-0 h-10 border-b border-slate-100 text-center">
+                    <td className="p-0 h-10 border-b border-slate-100 text-center w-20 min-w-[70px]">
                         <input
                             type="number"
                             list="period-options"
-                            className={`w-full h-full bg-transparent text-center text-slate-500 focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none ${!canEdit ? 'cursor-default' : ''}`}
+                            className={`w-full h-full bg-transparent text-center text-slate-600 font-medium focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none px-1 ${!canEdit ? 'cursor-default' : ''}`}
                             value={service.period ?? ''}
                             onChange={(e) => onUpdate(service.id, 'period', e.target.value === '' ? 0 : Number(e.target.value))}
                             readOnly={!canEdit}
                         />
                     </td>
 
-                    <td className="px-2 py-1 border-b border-slate-100 text-center overflow-hidden">
-                        <div className="flex items-center justify-center gap-1.5">
+                    <td className="px-2 py-1 border-b border-slate-100 text-center w-36 min-w-[145px]">
+                        <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
                             {calStatus.level === 'EXPIRED' && (
                                 <span
-                                    className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded shadow-sm"
+                                    className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded shadow-sm shrink-0"
                                     title={`Calibração Vencida (${calStatus.targetDateText})`}
                                 >
                                     VENC
@@ -332,13 +334,13 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                             )}
                             {calStatus.level === 'EXPIRING_SOON' && (
                                 <span
-                                    className="px-1.5 py-0.5 bg-amber-400 text-amber-950 font-bold text-[9px] rounded animate-pulse shadow-sm ring-1 ring-amber-300"
+                                    className="px-1.5 py-0.5 bg-amber-400 text-amber-950 font-bold text-[9px] rounded animate-pulse shadow-sm ring-1 ring-amber-300 shrink-0"
                                     title={`Atenção: Vence em ${calStatus.daysRemaining} dias (${calStatus.targetDateText})`}
                                 >
                                     {calStatus.daysRemaining}d
                                 </span>
                             )}
-                            <span className="text-xs font-medium text-slate-700 truncate">{nextCalText}</span>
+                            <span className="text-xs font-medium text-slate-700 whitespace-nowrap">{nextCalText}</span>
                         </div>
                     </td>
 
@@ -391,26 +393,26 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
             </datalist>
 
             <div className="overflow-auto flex-grow pb-32"> {/* Added padding bottom for dropdown space */}
-                <table className="w-full text-xs whitespace-nowrap border-collapse">
+                <table className="w-full min-w-[1650px] text-xs whitespace-nowrap border-collapse">
                     <thead className="sticky top-0 z-30">
                         <tr className="bg-slate-50 shadow-sm">
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-12">Sem.</th>
-                            <th className="px-2 py-3 text-left font-semibold uppercase text-slate-500 border-b border-slate-200 min-w-[180px]">Cliente</th>
-                            <th className="px-2 py-3 text-left font-semibold uppercase text-slate-500 border-b border-slate-200 w-20">Manager</th>
-                            <th className="px-2 py-3 text-left font-semibold uppercase text-slate-500 border-b border-slate-200 w-20">OS</th>
-                            <th className="px-2 py-3 text-left font-semibold uppercase text-slate-500 border-b border-slate-200 min-w-[150px]">Descrição</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-10">HP</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-10">HT</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-10">HV</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-24">Início</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-24">Fim</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-24">Exec.</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-24">Últ. Cal.</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-16">Período</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-28">Próx. Calibração</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-32">Status</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-28">Previsão</th>
-                            {canEdit && <th className="w-10 border-b border-slate-200"></th>}
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-12 min-w-[48px]">Sem.</th>
+                            <th className="px-2 py-3 text-left font-semibold uppercase text-slate-500 border-b border-slate-200 min-w-[200px]">Cliente</th>
+                            <th className="px-2 py-3 text-left font-semibold uppercase text-slate-500 border-b border-slate-200 w-24 min-w-[85px]">Manager</th>
+                            <th className="px-2 py-3 text-left font-semibold uppercase text-slate-500 border-b border-slate-200 w-28 min-w-[100px]">OS</th>
+                            <th className="px-2 py-3 text-left font-semibold uppercase text-slate-500 border-b border-slate-200 min-w-[160px]">Descrição</th>
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-16 min-w-[60px]">HP</th>
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-16 min-w-[60px]">HT</th>
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-16 min-w-[60px]">HV</th>
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-32 min-w-[125px]">Início</th>
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-32 min-w-[125px]">Fim</th>
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-28 min-w-[100px]">Exec.</th>
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-32 min-w-[125px]">Últ. Cal.</th>
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-20 min-w-[70px]">Período</th>
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-36 min-w-[145px]">Próx. Calibração</th>
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-36 min-w-[140px]">Status</th>
+                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-44 min-w-[170px]">Previsão</th>
+                            {canEdit && <th className="w-12 min-w-[48px] border-b border-slate-200"></th>}
                         </tr>
                     </thead>
                     <tbody>

@@ -13,6 +13,16 @@
     height: 100%;
 }
 
+/* Hide native number input spinners to prevent overlap in compact table cells */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+input[type=number] {
+    -moz-appearance: textfield;
+}
+
 body {
   @apply bg-slate-50 text-slate-900 antialiased h-screen overflow-hidden;
 }
