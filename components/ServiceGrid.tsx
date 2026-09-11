@@ -389,6 +389,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                 <option value="12" />
                 <option value="18" />
                 <option value="24" />
+                <option value="30" />
                 <option value="36" />
             </datalist>
 

@@ -348,13 +348,23 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                     <label className={labelClass}>Período de Recorrência (Meses)</label>
                     <input
                       type="number"
-                      min="1"
+                      min="0"
                       max="36"
+                      list="modal-period-options"
                       readOnly={!canEdit}
                       className={`w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
                       value={formData.period}
-                      onChange={e => handleChange('period', Number(e.target.value))}
+                      onChange={e => handleChange('period', e.target.value === '' ? 0 : Number(e.target.value))}
                     />
+                    <datalist id="modal-period-options">
+                      <option value="0" />
+                      <option value="6" />
+                      <option value="12" />
+                      <option value="18" />
+                      <option value="24" />
+                      <option value="30" />
+                      <option value="36" />
+                    </datalist>
                   </div>
                 </div>
 
