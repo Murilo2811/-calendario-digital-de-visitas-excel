@@ -99,6 +99,108 @@ const TechnicianMultiSelect = ({
     );
 };
 
+const PERIOD_OPTIONS = [0, 6, 12, 18, 24, 30, 36];
+
+const PeriodCell = ({
+    value,
+    onChange,
+    disabled = false
+}: {
+    value: number,
+    onChange: (val: number) => void,
+    disabled?: boolean
+}) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [tempValue, setTempValue] = useState<string>(value !== undefined && value !== null ? String(value) : '0');
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        setTempValue(value !== undefined && value !== null ? String(value) : '0');
+    }, [value]);
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                setIsOpen(false);
+            }
+        };
+        if (isOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [isOpen]);
+
+    const handleBlur = () => {
+        const num = tempValue === '' ? 0 : Number(tempValue);
+        if (num !== value) {
+            onChange(num);
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.currentTarget.blur();
+            setIsOpen(false);
+        }
+    };
+
+    const handleSelect = (opt: number) => {
+        setTempValue(String(opt));
+        onChange(opt);
+        setIsOpen(false);
+    };
+
+    return (
+        <div className="relative w-full h-full flex items-center justify-center group/period" ref={containerRef}>
+            <input
+                type="number"
+                disabled={disabled}
+                value={tempValue}
+                onChange={(e) => setTempValue(e.target.value)}
+                onBlur={handleBlur}
+                onKeyDown={handleKeyDown}
+                className={`w-full h-full bg-transparent text-center text-slate-700 font-semibold focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none pl-1 pr-4 text-xs transition-colors ${disabled ? 'cursor-default' : ''}`}
+            />
+            {!disabled && (
+                <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setIsOpen(!isOpen)}
+                    className="absolute right-0.5 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-200/60 transition-colors cursor-pointer"
+                    title="Selecionar período (0, 6, 12, 18, 24, 30, 36)"
+                >
+                    <ChevronDown size={12} />
+                </button>
+            )}
+
+            {isOpen && (
+                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 w-24 bg-white border border-slate-200 rounded-lg shadow-xl z-50 overflow-hidden flex flex-col py-1 animate-in fade-in zoom-in-95 duration-100">
+                    <div className="px-2 py-1 bg-slate-50 border-b border-slate-100 text-[9px] font-bold text-slate-500 uppercase text-center">
+                        Período
+                    </div>
+                    {PERIOD_OPTIONS.map((opt) => {
+                        const isSelected = Number(tempValue) === opt;
+                        return (
+                            <button
+                                key={opt}
+                                type="button"
+                                onClick={() => handleSelect(opt)}
+                                className={`w-full text-center px-2 py-1.5 text-xs font-semibold transition-colors flex items-center justify-between cursor-pointer ${
+                                    isSelected
+                                        ? 'bg-abb-red text-white'
+                                        : 'text-slate-700 hover:bg-slate-100'
+                                }`}
+                            >
+                                <span className="flex-1 text-center">{opt}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+};
+
 export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians, clients, onUpdate, onDelete, canEdit = true }) => {
     const [activeCommentService, setActiveCommentService] = useState<{ id: string; client: string; os: string; comments: string } | null>(null);
 
@@ -313,13 +415,10 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
 
                     {/* Period Column */}
                     <td className="p-0 h-10 border-b border-slate-100 text-center w-20 min-w-[70px]">
-                        <input
-                            type="number"
-                            list="period-options"
-                            className={`w-full h-full bg-transparent text-center text-slate-600 font-medium focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none px-1 ${!canEdit ? 'cursor-default' : ''}`}
-                            value={service.period ?? ''}
-                            onChange={(e) => onUpdate(service.id, 'period', e.target.value === '' ? 0 : Number(e.target.value))}
-                            readOnly={!canEdit}
+                        <PeriodCell
+                            value={service.period ?? 0}
+                            onChange={(val) => onUpdate(service.id, 'period', val)}
+                            disabled={!canEdit}
                         />
                     </td>
 
@@ -413,16 +512,6 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
         <div className="flex flex-col h-full bg-white relative">
             <datalist id="client-options">
                 {clients.map(c => <option key={c.id} value={c.name} />)}
-            </datalist>
-
-            <datalist id="period-options">
-                <option value="0" />
-                <option value="6" />
-                <option value="12" />
-                <option value="18" />
-                <option value="24" />
-                <option value="30" />
-                <option value="36" />
             </datalist>
 
             <div className="overflow-auto flex-grow pb-32"> {/* Added padding bottom for dropdown space */}
