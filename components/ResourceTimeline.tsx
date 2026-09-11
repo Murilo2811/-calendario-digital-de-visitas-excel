@@ -488,7 +488,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                         {days.map((d, idx) => {
                                             const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                                             return (
-                                                <div key={idx} className={`flex-1 border-r border-slate-100 h-full ${cellMinWidth} ${isWeekend ? 'bg-red-50/80' : ''}`} />
+                                                <div key={idx} className={`flex-1 border-r border-slate-100 h-full ${cellMinWidth} ${isWeekend ? 'bg-abb-red/15' : ''}`} />
                                             );
                                         })}
                                     </div>
@@ -701,7 +701,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                                     {days.map((d, i) => {
                                                         const isWeekend = d.getDay() === 0 || d.getDay() === 6;
                                                         return (
-                                                            <div key={i} className={`flex-1 border-r border-slate-100 h-full ${isWeekend ? 'bg-red-50/80' : ''}`} />
+                                                            <div key={i} className={`flex-1 border-r border-slate-100 h-full ${isWeekend ? 'bg-abb-red/15' : ''}`} />
                                                         );
                                                     })}
                                                 </div>

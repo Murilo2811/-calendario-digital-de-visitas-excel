@@ -124,7 +124,9 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
     };
   }
 
-  const baseDateStr = service.lastCalibration || service.endDate || service.startDate;
+  const baseDateStr = (service.startDate && isValid(parseISO(service.startDate)))
+    ? service.startDate
+    : (service.lastCalibration || service.endDate);
   if (!baseDateStr) {
     return {
       level: 'NONE',
@@ -328,20 +330,30 @@ export const calculateDuration = (start: string, end: string): number => {
 };
 
 /**
- * Calculates the next calibration date and forecast string based on last cal + period
+ * Calculates the next calibration date and forecast string based on startDate (or lastCal) + period
+ * Format: dd/MM/yyyy (padrão brasileiro)
  */
-export const calculateCalibration = (lastCal?: string, period?: number) => {
-    if (!lastCal || !period || period <= 0) {
+export const calculateCalibration = (startDate?: string, lastCal?: string, period?: number) => {
+    if (!period || period <= 0) {
         return { nextCalText: '***', forecastDate: null };
     }
     
-    const lastDate = parseISO(lastCal);
-    if (!isValid(lastDate)) return { nextCalText: '-', forecastDate: null };
+    // Prioriza data da coluna Início (startDate); fallback para Última Calibração (lastCal)
+    const baseDateStr = (startDate && isValid(parseISO(startDate)))
+        ? startDate
+        : (lastCal && isValid(parseISO(lastCal)) ? lastCal : null);
 
-    const nextDate = addMonths(lastDate, period);
+    if (!baseDateStr) {
+        return { nextCalText: '***', forecastDate: null };
+    }
+
+    const baseDate = parseISO(baseDateStr);
+    if (!isValid(baseDate)) return { nextCalText: '-', forecastDate: null };
+
+    const nextDate = addMonths(baseDate, period);
     
-    // "Proxima calibração": Month-YY (e.g. July-25)
-    const nextCalText = format(nextDate, 'MMMM-yy', { locale: ptBR }); 
+    // "Proxima calibração": Formato completo dd/MM/yyyy (ex: 15/09/2026)
+    const nextCalText = format(nextDate, 'dd/MM/yyyy', { locale: ptBR }); 
 
     return { nextCalText, forecastDate: nextDate };
 };
@@ -393,7 +405,7 @@ export const exportToExcel = (services: Service[], technicians: Technician[]) =>
       .filter(Boolean)
       .join(', ');
 
-    const { nextCalText } = calculateCalibration(s.lastCalibration, s.period);
+    const { nextCalText } = calculateCalibration(s.startDate, s.lastCalibration, s.period);
     const { forecastText } = calculateServiceForecast(s.startDate, s.endDate, s.period);
 
     return {

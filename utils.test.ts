@@ -2,7 +2,7 @@
 // Roda sem framework: `npm test` (node:test + node:assert, type stripping nativo do Node 24).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRecurringCalibrationForecasts, checkPeriodExceeded } from './utils.ts';
+import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus } from './utils.ts';
 import { ServiceStatus, TechType } from './types.ts';
 import type { Service, Technician } from './types.ts';
 
@@ -80,4 +80,29 @@ test('checkPeriodExceeded: sem lastCalibration usa a data de inicio como base', 
   const r = checkPeriodExceeded(base({ lastCalibration: '' }), '2026-07-15');
   assert.equal(r.isExceeded, true);
   assert.equal(r.daysExceeded, 10);
+});
+
+test('calculateCalibration: calcula proxima calibracao a partir da coluna Inicio (startDate)', () => {
+  // startDate = 15/03/2026 + 6 meses = 15/09/2026
+  const { nextCalText, forecastDate } = calculateCalibration('2026-03-15', '2025-01-01', 6);
+  assert.equal(nextCalText, '15/09/2026');
+  assert.ok(forecastDate instanceof Date);
+});
+
+test('calculateCalibration: usa lastCalibration como fallback se startDate estiver ausente', () => {
+  // sem startDate, usa lastCalibration: 10/02/2026 + 12 meses = 10/02/2027
+  const { nextCalText } = calculateCalibration('', '2026-02-10', 12);
+  assert.equal(nextCalText, '10/02/2027');
+});
+
+test('calculateCalibration: retorna *** se period for zero ou nao houver datas validas', () => {
+  assert.equal(calculateCalibration('2026-03-15', '', 0).nextCalText, '***');
+  assert.equal(calculateCalibration('', '', 6).nextCalText, '***');
+});
+
+test('getCalibrationStatus: calcula data alvo a partir da coluna Inicio', () => {
+  const service = base({ startDate: '2026-05-20', period: 6, lastCalibration: '2024-01-01' });
+  const status = getCalibrationStatus(service);
+  assert.equal(status.targetDateText, '20/11/2026');
+  assert.equal(status.isForecast, true);
 });

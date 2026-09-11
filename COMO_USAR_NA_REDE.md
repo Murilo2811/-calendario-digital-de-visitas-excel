@@ -32,7 +32,7 @@ Basta copiar os seguintes arquivos e pastas para o diretório compartilhado na r
      * **Usuário:** `admin`
      * **Senha:** `admin123`
 5. O sistema carrega automaticamente os dados da planilha central `Calendario_Digital_Base.xlsx` localizada na mesma pasta da rede.
-6. Qualquer alteração ou nova visita agendada é **salva automaticamente em tempo real** diretamente no arquivo Excel central.
+6. Qualquer alteração ou nova visita agendada pode ser gravada diretamente no arquivo Excel central clicando no botão **"Salvar"** ou pelo atalho **Ctrl + S** (com proteção caso tente fechar a janela sem salvar).
 
 ---
 

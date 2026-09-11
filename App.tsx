@@ -413,9 +413,17 @@ const App: React.FC = () => {
         return { rangeStart: start, rangeEnd: end };
     }, [selectedYear, selectedMonth, customDaysOffset]);
 
-    const servicesForSelectedYear = useMemo(() => {
-        const yearStart = startOfYear(new Date(selectedYear, 0, 1));
-        const yearEnd = endOfYear(new Date(selectedYear, 0, 1));
+    const servicesForSelectedPeriod = useMemo(() => {
+        let periodStart: Date;
+        let periodEnd: Date;
+
+        if (selectedMonth === -1) {
+            periodStart = startOfYear(new Date(selectedYear, 0, 1));
+            periodEnd = endOfYear(new Date(selectedYear, 0, 1));
+        } else {
+            periodStart = startOfMonth(new Date(selectedYear, selectedMonth, 1));
+            periodEnd = endOfMonth(new Date(selectedYear, selectedMonth, 1));
+        }
 
         return services.filter(s => {
             // ALWAYS include services with missing or invalid dates so user can fix them
@@ -428,17 +436,17 @@ const App: React.FC = () => {
                 // If dates are invalid, include them
                 if (!isValid(sStart) || !isValid(sEnd)) return true;
 
-                // Otherwise check overlap
-                return sStart <= yearEnd && sEnd >= yearStart;
+                // Check overlap with selected period (month or full year)
+                return sStart <= periodEnd && sEnd >= periodStart;
             } catch {
                 // If error parsing, include it
                 return true;
             }
         });
-    }, [services, selectedYear]);
+    }, [services, selectedYear, selectedMonth]);
 
     const filteredServices = useMemo(() => {
-        let servicesToFilter = servicesForSelectedYear;
+        let servicesToFilter = servicesForSelectedPeriod;
 
         if (searchText) {
             const searchLower = searchText.toLowerCase();
@@ -469,7 +477,7 @@ const App: React.FC = () => {
         }
 
         return sorted;
-    }, [servicesForSelectedYear, searchText, filterTechId, filterStatus, isGrouped, view]);
+    }, [servicesForSelectedPeriod, searchText, filterTechId, filterStatus, isGrouped, view]);
 
     const visibleTechnicians = useMemo(() => {
         if (filterTechId === 'all') return technicians;
@@ -1121,31 +1129,38 @@ const App: React.FC = () => {
                                 disabled={isSaving}
                                 title={
                                     hasUnsavedChanges
-                                        ? 'Existem alterações não salvas. Clique para salvar (Ctrl+S)'
-                                        : 'Todas as alterações foram salvas (Ctrl+S)'
+                                        ? 'Existem alterações não salvas! Clique para salvar no Excel (Ctrl+S)'
+                                        : 'Salvar alterações no Excel (Ctrl+S)'
                                 }
-                                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all shadow-sm ${
+                                className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-all shadow-sm ${
                                     isSaving
-                                        ? 'bg-amber-50 border-amber-300 text-amber-800 opacity-90 cursor-wait'
+                                        ? 'bg-amber-50 border-amber-400 text-amber-800 cursor-wait'
                                         : hasUnsavedChanges
-                                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-emerald-200'
-                                        : 'bg-white hover:bg-slate-50 text-slate-600 border-slate-200'
+                                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300 animate-pulse'
+                                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
                                 }`}
                             >
                                 {isSaving ? (
                                     <>
-                                        <Loader2 size={15} className="animate-spin text-amber-700" />
+                                        <Loader2 size={16} className="animate-spin text-amber-700" />
                                         <span>Salvando...</span>
                                     </>
                                 ) : hasUnsavedChanges ? (
                                     <>
-                                        <Save size={15} />
-                                        <span>Salvar</span>
+                                        <span className="relative flex h-2 w-2">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                                        </span>
+                                        <Save size={16} className="text-white" />
+                                        <span>Salvar Alterações *</span>
                                     </>
                                 ) : (
                                     <>
-                                        <Check size={15} className="text-emerald-600" />
-                                        <span>Salvo</span>
+                                        <Save size={16} className="text-emerald-700" />
+                                        <span>Salvar</span>
+                                        <span className="text-[10px] font-medium bg-emerald-200/80 text-emerald-800 px-1.5 py-0.5 rounded-full">
+                                            ✓ Em dia
+                                        </span>
                                     </>
                                 )}
                             </button>

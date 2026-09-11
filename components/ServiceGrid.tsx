@@ -155,7 +155,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
 
     const renderRows = (list: Service[]) => {
         return list.map((service) => {
-            const { nextCalText } = calculateCalibration(service.lastCalibration, service.period);
+            const { nextCalText } = calculateCalibration(service.startDate, service.lastCalibration, service.period);
             const { forecastText, forecastStartDate } = calculateServiceForecast(service.startDate, service.endDate, service.period);
             const statusClass = getStatusColor(service.status);
             const isFutureForecast = forecastStartDate ? isFuture(forecastStartDate) : false;
