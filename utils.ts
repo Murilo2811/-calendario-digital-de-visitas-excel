@@ -471,3 +471,47 @@ export const exportToExcel = (services: Service[], technicians: Technician[]) =>
   // Download the file
   XLSX.writeFile(workbook, `Calendario_Digital_Export_${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
 };
+
+/**
+ * Filtra serviços com base no período selecionado (ano e mês).
+ * month: -1 indica 'Ano Inteiro'; 0 a 11 representam Janeiro a Dezembro.
+ */
+export const filterServicesByPeriod = (
+  services: Service[],
+  selectedYear: number,
+  selectedMonth: number
+): Service[] => {
+  let periodStartStr: string;
+  let periodEndStr: string;
+
+  if (selectedMonth === -1) {
+    periodStartStr = `${selectedYear}-01-01`;
+    periodEndStr = `${selectedYear}-12-31`;
+  } else {
+    const monthStr = String(selectedMonth + 1).padStart(2, '0');
+    const lastDay = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+    periodStartStr = `${selectedYear}-${monthStr}-01`;
+    periodEndStr = `${selectedYear}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
+  }
+
+  return services.filter(s => {
+    const rawStart = (s.startDate || '').trim();
+    const rawEnd = (s.endDate || '').trim();
+
+    // Se nenhuma data foi fornecida:
+    if (!rawStart && !rawEnd) {
+      // Exibe apenas na visão de Ano Inteiro para permitir identificação e edição
+      return selectedMonth === -1;
+    }
+
+    const effectiveStart = rawStart || rawEnd;
+    const effectiveEnd = rawEnd || rawStart;
+
+    // Normaliza caso início seja posterior ao fim
+    const startStr = effectiveStart <= effectiveEnd ? effectiveStart : effectiveEnd;
+    const endStr = effectiveStart <= effectiveEnd ? effectiveEnd : effectiveStart;
+
+    // Checagem de sobreposição de intervalos:
+    return startStr <= periodEndStr && endStr >= periodStartStr;
+  });
+};

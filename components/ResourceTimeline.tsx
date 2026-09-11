@@ -23,6 +23,7 @@ interface ResourceTimelineProps {
     technicians: Technician[];
     rangeStart: Date;
     rangeEnd: Date;
+    isYearView?: boolean;
     onServiceMove: (id: string, newStartDate: string, newTechId: string, oldTechId: string) => void;
     onServiceResize: (id: string, newStartDate: string, newEndDate: string) => void;
     onServiceClick: (service: Service) => void;
@@ -42,6 +43,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
     technicians,
     rangeStart,
     rangeEnd,
+    isYearView: isYearViewProp,
     onServiceMove,
     onServiceResize,
     onServiceClick,
@@ -49,7 +51,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
 }) => {
 
     const totalDays = differenceInDays(rangeEnd, rangeStart) + 1;
-    const isYearView = totalDays > 45;
+    const isYearView = isYearViewProp !== undefined ? isYearViewProp : totalDays > 65;
 
     const [dragState, setDragState] = useState<DragState | null>(null);
 

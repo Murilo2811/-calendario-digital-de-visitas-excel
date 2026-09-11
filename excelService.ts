@@ -188,6 +188,7 @@ const parseExcelDate = (value: unknown): string => {
 
   // Se já é uma Date
   if (value instanceof Date) {
+    if (isNaN(value.getTime())) return '';
     const year = value.getFullYear();
     const month = String(value.getMonth() + 1).padStart(2, '0');
     const day = String(value.getDate()).padStart(2, '0');
@@ -207,19 +208,28 @@ const parseExcelDate = (value: unknown): string => {
 
   // Se é string, tentar parsear
   if (typeof value === 'string') {
-    // Formato YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      return value;
+    const clean = value.trim();
+    if (!clean) return '';
+
+    // Formato YYYY-MM-DD (com ou sem horário posterior)
+    const matchIso = clean.match(/^(\d{4})[-/](\d{2})[-/](\d{2})/);
+    if (matchIso) {
+      return `${matchIso[1]}-${matchIso[2]}-${matchIso[3]}`;
     }
-    // Formato DD/MM/YYYY
-    const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if (match) {
-      return `${match[3]}-${match[2]}-${match[1]}`;
+
+    // Formato DD/MM/YYYY ou DD-MM-YYYY (com ou sem horário posterior)
+    const matchBr = clean.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (matchBr) {
+      const day = matchBr[1].padStart(2, '0');
+      const month = matchBr[2].padStart(2, '0');
+      const year = matchBr[3];
+      return `${year}-${month}-${day}`;
     }
   }
 
-  return String(value);
+  return '';
 };
+
 
 /**
  * Mapeia string de status para enum
@@ -306,8 +316,10 @@ export const parseWorkbookData = (workbook: XLSX.WorkBook): {
           .map(name => technicians.find(t => t.name === name || t.fullName === name)?.id)
           .filter((id): id is string => !!id);
 
-        const startDateStr = parseExcelDate(row['Inicio'] || row['Data Inicio']);
-        const endDateStr = parseExcelDate(row['Fim'] || row['Data Fim']);
+        const rawStartStr = parseExcelDate(row['Inicio'] || row['Data Inicio']);
+        const rawEndStr = parseExcelDate(row['Fim'] || row['Data Fim']);
+        const startDateStr = rawStartStr || rawEndStr;
+        const endDateStr = rawEndStr || rawStartStr;
         let weekNumber = Number(row['Semana'] || row['SEM.'] || 0);
         const parsedStart = parseISO(startDateStr);
         if (isValid(parsedStart)) {

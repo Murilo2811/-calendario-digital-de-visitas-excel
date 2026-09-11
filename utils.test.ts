@@ -2,7 +2,7 @@
 // Roda sem framework: `npm test` (node:test + node:assert, type stripping nativo do Node 24).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus } from './utils.ts';
+import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod } from './utils.ts';
 import { ServiceStatus, TechType } from './types.ts';
 import type { Service, Technician } from './types.ts';
 
@@ -112,3 +112,49 @@ test('getCalibrationStatus: cliente confirmado nao exibe alerta de pendencia', (
   const status = getCalibrationStatus(service);
   assert.equal(status.level, 'NONE');
 });
+
+test('filterServicesByPeriod: filtra corretamente por mes e ano', () => {
+  const list: Service[] = [
+    base({ id: 's1', startDate: '2025-03-10', endDate: '2025-03-14' }), // Março 2025
+    base({ id: 's2', startDate: '2025-03-28', endDate: '2025-04-03' }), // Cruza Março e Abril 2025
+    base({ id: 's3', startDate: '2025-04-10', endDate: '2025-04-12' }), // Abril 2025
+    base({ id: 's4', startDate: '2024-08-05', endDate: '' }),           // Suzano: apenas startDate em 2024
+    base({ id: 's5', startDate: '', endDate: '2025-05-15' }),           // Apenas endDate em Maio 2025
+    base({ id: 's6', startDate: '', endDate: '' }),                     // Sem data
+  ];
+
+  // Março 2025 (month = 2) -> deve conter s1 e s2
+  const marco2025 = filterServicesByPeriod(list, 2025, 2);
+  assert.deepEqual(marco2025.map(s => s.id), ['s1', 's2']);
+
+  // Abril 2025 (month = 3) -> deve conter s2 e s3
+  const abril2025 = filterServicesByPeriod(list, 2025, 3);
+  assert.deepEqual(abril2025.map(s => s.id), ['s2', 's3']);
+
+  // Maio 2025 (month = 4) -> deve conter s5
+  const maio2025 = filterServicesByPeriod(list, 2025, 4);
+  assert.deepEqual(maio2025.map(s => s.id), ['s5']);
+
+  // Agosto 2024 (month = 7) -> deve conter s4 (Suzano sem endDate)
+  const agosto2024 = filterServicesByPeriod(list, 2024, 7);
+  assert.deepEqual(agosto2024.map(s => s.id), ['s4']);
+
+  // Setembro 2026 (month = 8) -> NÃO deve conter s4 da Suzano de 2024!
+  const set2026 = filterServicesByPeriod(list, 2026, 8);
+  assert.equal(set2026.length, 0, 'nenhum servico de 2024/2025 deve vazar para Setembro de 2026');
+
+  // Ano Inteiro 2025 (month = -1) -> deve conter s1, s2, s3, s5 e s6 (sem data para edicao)
+  const ano2025 = filterServicesByPeriod(list, 2025, -1);
+  assert.ok(ano2025.some(s => s.id === 's1'));
+  assert.ok(ano2025.some(s => s.id === 's2'));
+  assert.ok(ano2025.some(s => s.id === 's3'));
+  assert.ok(ano2025.some(s => s.id === 's5'));
+  assert.ok(ano2025.some(s => s.id === 's6'));
+  assert.ok(!ano2025.some(s => s.id === 's4'), 's4 pertence a 2024, nao deve aparecer em 2025');
+
+  // Ano Inteiro 2024 (month = -1) -> deve conter s4
+  const ano2024 = filterServicesByPeriod(list, 2024, -1);
+  assert.ok(ano2024.some(s => s.id === 's4'));
+  assert.ok(!ano2024.some(s => s.id === 's1'), 's1 pertence a 2025, nao deve aparecer em 2024');
+});
+

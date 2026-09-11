@@ -21,7 +21,8 @@ import {
     getCalibrationStatus,
     createRecurringCalibrationForecasts,
     checkPeriodExceeded,
-    recalculateFutureForecastsFromNewDate
+    recalculateFutureForecastsFromNewDate,
+    filterServicesByPeriod
 } from './utils';
 import {
     openExcelFile,
@@ -396,6 +397,40 @@ const App: React.FC = () => {
     }, [hasUnsavedChanges]);
 
     // --- Date Logic ---
+    const availableYears = useMemo(() => {
+        const yearsSet = new Set<number>([2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030]);
+        services.forEach(s => {
+            const raw = (s.startDate || s.endDate || '').trim();
+            if (raw) {
+                const y = parseInt(raw.substring(0, 4), 10);
+                if (!isNaN(y) && y >= 2000 && y <= 2100) {
+                    yearsSet.add(y);
+                }
+            }
+        });
+        return Array.from(yearsSet).sort((a, b) => a - b);
+    }, [services]);
+
+    // Se a planilha carregar serviços e o ano selecionado não tiver nenhuma atividade,
+    // ajusta automaticamente para o ano com serviços mais recente (evita tela em branco na carga)
+    useEffect(() => {
+        if (services.length > 0) {
+            const hasServicesInYear = services.some(s => {
+                const raw = (s.startDate || s.endDate || '').trim();
+                return raw.startsWith(String(selectedYear));
+            });
+            if (!hasServicesInYear) {
+                const serviceYears = services
+                    .map(s => parseInt((s.startDate || s.endDate || '').substring(0, 4), 10))
+                    .filter(y => !isNaN(y) && y >= 2000 && y <= 2100);
+                if (serviceYears.length > 0) {
+                    const mostRecentYear = Math.max(...serviceYears);
+                    setSelectedYear(mostRecentYear);
+                }
+            }
+        }
+    }, [services, selectedYear]);
+
     const { rangeStart, rangeEnd } = useMemo(() => {
         let start: Date;
         let end: Date;
@@ -406,44 +441,17 @@ const App: React.FC = () => {
             start = startOfMonth(new Date(selectedYear, selectedMonth, 1));
             end = endOfMonth(new Date(selectedYear, selectedMonth, 1));
         }
-        // Aplica offset de dias customizado
-        if (customDaysOffset !== 0) {
+        // Aplica offset de dias customizado apenas se não for visão de ano inteiro
+        if (selectedMonth !== -1 && customDaysOffset !== 0) {
             end = addDays(end, customDaysOffset);
         }
         return { rangeStart: start, rangeEnd: end };
     }, [selectedYear, selectedMonth, customDaysOffset]);
 
     const servicesForSelectedPeriod = useMemo(() => {
-        let periodStart: Date;
-        let periodEnd: Date;
-
-        if (selectedMonth === -1) {
-            periodStart = startOfYear(new Date(selectedYear, 0, 1));
-            periodEnd = endOfYear(new Date(selectedYear, 0, 1));
-        } else {
-            periodStart = startOfMonth(new Date(selectedYear, selectedMonth, 1));
-            periodEnd = endOfMonth(new Date(selectedYear, selectedMonth, 1));
-        }
-
-        return services.filter(s => {
-            // ALWAYS include services with missing or invalid dates so user can fix them
-            if (!s.startDate || !s.endDate) return true;
-
-            try {
-                const sStart = parseISO(s.startDate);
-                const sEnd = parseISO(s.endDate);
-
-                // If dates are invalid, include them
-                if (!isValid(sStart) || !isValid(sEnd)) return true;
-
-                // Check overlap with selected period (month or full year)
-                return sStart <= periodEnd && sEnd >= periodStart;
-            } catch {
-                // If error parsing, include it
-                return true;
-            }
-        });
+        return filterServicesByPeriod(services, selectedYear, selectedMonth);
     }, [services, selectedYear, selectedMonth]);
+
 
     const filteredServices = useMemo(() => {
         let servicesToFilter = servicesForSelectedPeriod;
@@ -604,23 +612,32 @@ const App: React.FC = () => {
 
             try {
                 if (field === 'startDate') {
-                    const newStart = parseISO(value);
-                    if (!isValid(newStart)) return s;
-                    // Calculate duration from old dates if possible
-                    let duration = 5;
-                    if (s.startDate && s.endDate) {
-                        duration = calculateDuration(s.startDate, s.endDate);
-                    }
-                    if (duration < 1) duration = 1;
+                    if (!value) {
+                        updatedService.startDate = '';
+                        updatedService.week = 0;
+                    } else {
+                        const newStart = parseISO(value);
+                        if (!isValid(newStart)) return s;
+                        // Calculate duration from old dates if possible
+                        let duration = 5;
+                        if (s.startDate && s.endDate) {
+                            duration = calculateDuration(s.startDate, s.endDate);
+                        }
+                        if (duration < 1) duration = 1;
 
-                    const newEnd = addDays(newStart, duration - 1);
-                    updatedService.endDate = format(newEnd, 'yyyy-MM-dd');
-                    updatedService.week = getISOWeek(newStart);
+                        const newEnd = addDays(newStart, duration - 1);
+                        updatedService.endDate = format(newEnd, 'yyyy-MM-dd');
+                        updatedService.week = getISOWeek(newStart);
+                    }
                 }
                 if (field === 'endDate') {
-                    const newEnd = parseISO(value);
-                    const start = parseISO(s.startDate);
-                    if (!isValid(newEnd) || (s.startDate && isValid(start) && newEnd < start)) return s;
+                    if (!value) {
+                        updatedService.endDate = '';
+                    } else {
+                        const newEnd = parseISO(value);
+                        const start = parseISO(s.startDate);
+                        if (!isValid(newEnd) || (s.startDate && isValid(start) && newEnd < start)) return s;
+                    }
                 }
             } catch (e) {
                 return s; // Revert if date parsing fails
@@ -1010,16 +1027,22 @@ const App: React.FC = () => {
                             <div className="px-3 border-r border-slate-300">
                                 <select
                                     value={selectedYear}
-                                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                                    onChange={(e) => {
+                                        setSelectedYear(parseInt(e.target.value, 10));
+                                        setCustomDaysOffset(0);
+                                    }}
                                     className="bg-transparent font-bold text-slate-700 focus:outline-none cursor-pointer text-sm"
                                 >
-                                    {[2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => <option key={y} value={y}>{y}</option>)}
+                                    {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                                 </select>
                             </div>
                             <div className="px-3">
                                 <select
                                     value={selectedMonth}
-                                    onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                                    onChange={(e) => {
+                                        setSelectedMonth(parseInt(e.target.value, 10));
+                                        setCustomDaysOffset(0);
+                                    }}
                                     className="bg-transparent font-medium text-slate-600 focus:outline-none cursor-pointer w-32 text-sm"
                                 >
                                     <option value={-1} className="font-bold text-abb-red">Ano Inteiro</option>
@@ -1363,6 +1386,7 @@ const App: React.FC = () => {
                         onServiceClick={handleServiceClick}
                         rangeStart={rangeStart}
                         rangeEnd={rangeEnd}
+                        isYearView={selectedMonth === -1}
                         canEdit={userCanEdit}
                     />
                 )}
