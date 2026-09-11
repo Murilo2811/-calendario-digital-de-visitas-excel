@@ -124,6 +124,17 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
     };
   }
 
+  // Se o serviço já estiver confirmado pelo cliente, não exibe alerta de pendência/vencimento
+  if (service.status === ServiceStatus.CONFIRMED) {
+    return {
+      level: 'NONE',
+      daysRemaining: null,
+      targetDate: null,
+      targetDateText: '-',
+      isForecast: false
+    };
+  }
+
   const baseDateStr = (service.startDate && isValid(parseISO(service.startDate)))
     ? service.startDate
     : (service.lastCalibration || service.endDate);
@@ -153,6 +164,7 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
   const diffDays = differenceInDays(nextCalDate, today);
   const targetDateText = format(nextCalDate, 'dd/MM/yyyy', { locale: ptBR });
 
+  // 1. Data vencida: alerta vermelho
   if (diffDays < 0) {
     return {
       level: 'EXPIRED',
@@ -161,7 +173,9 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
       targetDateText,
       isForecast: true
     };
-  } else if (diffDays <= 30) {
+  } 
+  // 2. Faltando 2 meses (60 dias) ou menos e status diferente de Confirmado: alerta amarelo pulsante
+  else if (diffDays <= 60) {
     return {
       level: 'EXPIRING_SOON',
       daysRemaining: diffDays,

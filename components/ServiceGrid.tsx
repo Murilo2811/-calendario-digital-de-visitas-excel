@@ -321,29 +321,25 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                     </td>
 
                     <td className="px-2 py-1 border-b border-slate-100 text-center overflow-hidden">
-                        {(() => {
-                            const periodCheck = checkPeriodExceeded(service, service.startDate);
-                            return (
-                                <div className="flex items-center justify-center gap-1">
-                                    {periodCheck.isExceeded && (
-                                        <span className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded animate-pulse" title={`Prazo de Periodicidade Excedido em ${periodCheck.daysExceeded} dias (Data limite era: ${periodCheck.limitDateText})`}>
-                                            +{periodCheck.daysExceeded}d
-                                        </span>
-                                    )}
-                                    {!periodCheck.isExceeded && calStatus.level === 'EXPIRED' && (
-                                        <span className="px-1 py-0.5 bg-red-100 text-red-700 font-bold text-[9px] rounded" title={`Vencida (${calStatus.targetDateText})`}>
-                                            VENC
-                                        </span>
-                                    )}
-                                    {!periodCheck.isExceeded && calStatus.level === 'EXPIRING_SOON' && (
-                                        <span className="px-1 py-0.5 bg-amber-100 text-amber-800 font-bold text-[9px] rounded" title={`Vence em ${calStatus.daysRemaining} dias`}>
-                                            {calStatus.daysRemaining}d
-                                        </span>
-                                    )}
-                                    <span className="text-xs font-medium text-slate-600 truncate">{nextCalText}</span>
-                                </div>
-                            );
-                        })()}
+                        <div className="flex items-center justify-center gap-1.5">
+                            {calStatus.level === 'EXPIRED' && (
+                                <span
+                                    className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded shadow-sm"
+                                    title={`Calibração Vencida (${calStatus.targetDateText})`}
+                                >
+                                    VENC
+                                </span>
+                            )}
+                            {calStatus.level === 'EXPIRING_SOON' && (
+                                <span
+                                    className="px-1.5 py-0.5 bg-amber-400 text-amber-950 font-bold text-[9px] rounded animate-pulse shadow-sm ring-1 ring-amber-300"
+                                    title={`Atenção: Vence em ${calStatus.daysRemaining} dias (${calStatus.targetDateText})`}
+                                >
+                                    {calStatus.daysRemaining}d
+                                </span>
+                            )}
+                            <span className="text-xs font-medium text-slate-700 truncate">{nextCalText}</span>
+                        </div>
                     </td>
 
                     <td className="px-2 py-1 border-b border-slate-100 text-center">

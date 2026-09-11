@@ -100,9 +100,15 @@ test('calculateCalibration: retorna *** se period for zero ou nao houver datas v
   assert.equal(calculateCalibration('', '', 6).nextCalText, '***');
 });
 
-test('getCalibrationStatus: calcula data alvo a partir da coluna Inicio', () => {
-  const service = base({ startDate: '2026-05-20', period: 6, lastCalibration: '2024-01-01' });
+test('getCalibrationStatus: calcula data alvo a partir da coluna Inicio para status previsto', () => {
+  const service = base({ startDate: '2026-05-20', period: 6, lastCalibration: '2024-01-01', status: ServiceStatus.PREDICTED });
   const status = getCalibrationStatus(service);
   assert.equal(status.targetDateText, '20/11/2026');
   assert.equal(status.isForecast, true);
+});
+
+test('getCalibrationStatus: cliente confirmado nao exibe alerta de pendencia', () => {
+  const service = base({ startDate: '2025-01-01', period: 6, status: ServiceStatus.CONFIRMED });
+  const status = getCalibrationStatus(service);
+  assert.equal(status.level, 'NONE');
 });
