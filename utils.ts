@@ -114,90 +114,118 @@ export interface CalibrationStatusInfo {
  * Analyzes the calibration expiration status of a service.
  */
 export const getCalibrationStatus = (service: Service): CalibrationStatusInfo => {
-
-  if (!service.period || service.period <= 0) {
-    return {
-      level: 'NONE',
-      daysRemaining: null,
-      targetDate: null,
-      targetDateText: '-',
-      isForecast: false
-    };
-  }
-
-  // Se o serviço já estiver confirmado pelo cliente, não exibe alerta de pendência/vencimento
-  if (service.status === ServiceStatus.CONFIRMED) {
-    return {
-      level: 'NONE',
-      daysRemaining: null,
-      targetDate: null,
-      targetDateText: '-',
-      isForecast: false
-    };
-  }
-
-  let nextCalDate: Date;
-  if (service.nextCalibration && isValid(parseISO(service.nextCalibration))) {
-    nextCalDate = parseISO(service.nextCalibration);
-  } else {
-    const baseDateStr = (service.startDate && isValid(parseISO(service.startDate)))
-      ? service.startDate
-      : (service.lastCalibration || service.endDate);
-    if (!baseDateStr) {
-      return {
-        level: 'NONE',
-        daysRemaining: null,
-        targetDate: null,
-        targetDateText: '-',
-        isForecast: false
-      };
-    }
-
-    const baseDate = parseISO(baseDateStr);
-    if (!isValid(baseDate)) {
-      return {
-        level: 'NONE',
-        daysRemaining: null,
-        targetDate: null,
-        targetDateText: '-',
-        isForecast: false
-      };
-    }
-
-    nextCalDate = addMonths(baseDate, service.period);
-  }
-
   const today = startOfDay(new Date());
-  const diffDays = differenceInDays(nextCalDate, today);
-  const targetDateText = format(nextCalDate, 'dd/MM/yyyy', { locale: ptBR });
 
-  // 1. Data vencida: alerta vermelho
+  // Se já foi realizada e o status for confirmado ou não houver período futuro, não há pendência
+  if (service.realized === 'sim') {
+    if (!service.period || service.period <= 0 || service.status === ServiceStatus.CONFIRMED) {
+      return {
+        level: 'NONE',
+        daysRemaining: null,
+        targetDate: null,
+        targetDateText: '-',
+        isForecast: false
+      };
+    }
+  }
+
+  // Define a data alvo (targetDate):
+  // 1. Se tiver período de calibração (> 0), calcula a data de vencimento da calibração
+  // 2. Se não tiver período (period <= 0), a data alvo é a data de fim da visita (ou início)
+  let targetDate: Date;
+  let isForecast = false;
+
+  if (service.period && service.period > 0) {
+    if (service.nextCalibration && isValid(parseISO(service.nextCalibration))) {
+      targetDate = startOfDay(parseISO(service.nextCalibration));
+    } else {
+      const baseDateStr = (service.startDate && isValid(parseISO(service.startDate)))
+        ? service.startDate
+        : (service.lastCalibration || service.endDate);
+
+      if (!baseDateStr || !isValid(parseISO(baseDateStr))) {
+        return {
+          level: 'NONE',
+          daysRemaining: null,
+          targetDate: null,
+          targetDateText: '-',
+          isForecast: false
+        };
+      }
+
+      targetDate = startOfDay(addMonths(parseISO(baseDateStr), service.period));
+      isForecast = true;
+    }
+  } else {
+    // Sem período: referência é o fim da visita (ou início se fim não existir)
+    const refDateStr = (service.endDate && isValid(parseISO(service.endDate)))
+      ? service.endDate
+      : (service.startDate && isValid(parseISO(service.startDate)) ? service.startDate : '');
+
+    if (!refDateStr || !isValid(parseISO(refDateStr))) {
+      return {
+        level: 'NONE',
+        daysRemaining: null,
+        targetDate: null,
+        targetDateText: '-',
+        isForecast: false
+      };
+    }
+
+    targetDate = startOfDay(parseISO(refDateStr));
+    isForecast = false;
+  }
+
+  const diffDays = differenceInDays(targetDate, today);
+  const targetDateText = format(targetDate, 'dd/MM/yyyy', { locale: ptBR });
+
+  // Regra: se a data de fim ainda não venceu, NÃO considere como vencido!
+  const endDateObj = service.endDate && isValid(parseISO(service.endDate))
+    ? startOfDay(parseISO(service.endDate))
+    : null;
+  const isEndDateInFutureOrToday = endDateObj ? endDateObj >= today : false;
+
+  // 1. Vencido: data alvo expirou E a data de fim da visita não está no futuro
   if (diffDays < 0) {
+    if (isEndDateInFutureOrToday) {
+      // Data de fim ainda não venceu -> NÃO considera vencido!
+      const endDiffDays = differenceInDays(endDateObj!, today);
+      return {
+        level: endDiffDays <= 30 ? 'EXPIRING_SOON' : 'OK',
+        daysRemaining: endDiffDays,
+        targetDate,
+        targetDateText,
+        isForecast
+      };
+    }
+
     return {
       level: 'EXPIRED',
-      daysRemaining: diffDays,
-      targetDate: nextCalDate,
+      daysRemaining: Math.abs(diffDays),
+      targetDate,
       targetDateText,
-      isForecast: true
+      isForecast
     };
-  } 
-  // 2. Faltando 2 meses (60 dias) ou menos e status diferente de Confirmado: alerta amarelo pulsante
-  else if (diffDays <= 60) {
+  }
+
+  // 2. Próximo do vencimento (até 30 dias para visitas sem período, ou até 60 dias para calibrações)
+  const thresholdDays = (service.period && service.period > 0) ? 60 : 30;
+  if (diffDays <= thresholdDays) {
     return {
       level: 'EXPIRING_SOON',
       daysRemaining: diffDays,
-      targetDate: nextCalDate,
+      targetDate,
       targetDateText,
-      isForecast: true
+      isForecast
     };
   }
 
   return {
     level: 'OK',
     daysRemaining: diffDays,
-    targetDate: nextCalDate,
+    targetDate,
     targetDateText,
-    isForecast: true
+    isForecast
   };
 };
 

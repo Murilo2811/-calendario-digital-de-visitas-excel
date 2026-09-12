@@ -111,14 +111,14 @@ test('calculateCalibration: retorna *** se period for zero ou nao houver datas v
 });
 
 test('getCalibrationStatus: calcula data alvo a partir da coluna Inicio para status previsto', () => {
-  const service = base({ startDate: '2026-05-20', period: 6, lastCalibration: '2024-01-01', status: ServiceStatus.PREDICTED });
+  const service = base({ startDate: '2026-05-20', endDate: '2026-05-25', period: 6, lastCalibration: '2024-01-01', status: ServiceStatus.PREDICTED });
   const status = getCalibrationStatus(service);
   assert.equal(status.targetDateText, '20/11/2026');
   assert.equal(status.isForecast, true);
 });
 
-test('getCalibrationStatus: cliente confirmado nao exibe alerta de pendencia', () => {
-  const service = base({ startDate: '2025-01-01', period: 6, status: ServiceStatus.CONFIRMED });
+test('getCalibrationStatus: cliente confirmado realizado nao exibe alerta de pendencia', () => {
+  const service = base({ startDate: '2025-01-01', endDate: '2025-01-05', period: 6, status: ServiceStatus.CONFIRMED, realized: 'sim' });
   const status = getCalibrationStatus(service);
   assert.equal(status.level, 'NONE');
 });
@@ -243,21 +243,33 @@ test('sincronização de Status: muda para Cliente Previsto quando Realizado for
   assert.equal(revertedNao.status, ServiceStatus.CONFIRMED, 'Status deve reverter para o original');
 });
 
-test('quando realizado for "nao", calculateCalibration retorna "0" mas getCalibrationStatus segue a regra de vencimento', () => {
+test('quando realizado for "nao", calculateCalibration retorna "0" mas getCalibrationStatus segue a regra de vencimento pela data de fim', () => {
   const result = calculateCalibration('2026-01-05', '2025-01-05', 6, '2026-07-05', 'nao');
   assert.equal(result.nextCalText, '0', 'Deve retornar 0 como texto quando realizado não for sim');
   assert.equal(result.forecastDate, null, 'forecastDate deve ser null');
   assert.equal(result.isoDate, '', 'isoDate deve ser vazio');
 
+  // Cenário 1: Data de fim já passou -> EXPIRED (VENC)
   const svcVencida: Service = base({
-    startDate: '2020-01-05',
-    lastCalibration: '2020-01-05',
-    period: 6,
+    startDate: '2020-01-01',
+    endDate: '2020-01-05',
     realized: 'nao',
-    status: ServiceStatus.PREDICTED,
+    period: 0,
+    status: ServiceStatus.CONFIRMED,
   });
-  const status = getCalibrationStatus(svcVencida);
-  assert.equal(status.level, 'EXPIRED', 'Alerta de calibração deve acusar EXPIRED mesmo com realizado = nao');
+  const status1 = getCalibrationStatus(svcVencida);
+  assert.equal(status1.level, 'EXPIRED', 'Se a data de fim já passou, deve acusar EXPIRED');
+
+  // Cenário 2: Data de início já passou, mas data de fim ainda NÃO venceu -> NÃO é EXPIRED!
+  const svcEmAndamento: Service = base({
+    startDate: '2020-01-01',
+    endDate: '2099-12-31',
+    realized: 'nao',
+    period: 0,
+    status: ServiceStatus.CONFIRMED,
+  });
+  const status2 = getCalibrationStatus(svcEmAndamento);
+  assert.notEqual(status2.level, 'EXPIRED', 'Se a data de fim ainda não venceu, NÃO deve ser considerado vencido');
 });
 
 test('quando próxima calibração for "0" ou realizado for "nao", calculateServiceForecast retorna "0"', () => {
