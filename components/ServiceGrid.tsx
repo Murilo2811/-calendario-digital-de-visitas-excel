@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Service, ServiceStatus, Technician, Client } from '../types';
 import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getClientConflicts, checkPeriodExceeded } from '../utils';
 import { STATUS_STYLE } from '../constants';
-import { Trash2, AlertCircle, Check, ChevronDown, MessageSquare, X } from 'lucide-react';
+import { Trash2, AlertCircle, Check, ChevronDown, MessageSquare, X, ArrowUp, ArrowDown, ListFilter, Filter } from 'lucide-react';
 import { isFuture } from 'date-fns/isFuture';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
@@ -14,6 +14,8 @@ interface ServiceGridProps {
     clients: Client[];
     onUpdate: (id: string, field: keyof Service, value: any) => void;
     onDelete: (id: string) => void;
+    onBatchStatusUpdate?: (ids: string[], newStatus: ServiceStatus) => void;
+    onBatchDelete?: (ids: string[]) => void;
     canEdit?: boolean;
 }
 
@@ -92,6 +94,191 @@ const TechnicianMultiSelect = ({
                                 </div>
                             );
                         })}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// --- Filtro e ordenacao por coluna ---
+
+type SortDir = 'asc' | 'desc';
+
+const NUMERIC_COLS = new Set(['week', 'hp', 'ht', 'hv', 'period']);
+
+/**
+ * Valor exibido/filtrado de cada coluna. Fonte unica compartilhada com sortValue:
+ * se as duas divergissem, o popover listaria um valor e a ordenacao usaria outro.
+ */
+const cellValue = (s: Service, key: string, techs: Technician[]): string => {
+    switch (key) {
+        case 'week': {
+            const d = s.startDate ? parseISO(s.startDate) : null;
+            return String(d && isValid(d) ? getISOWeek(d) : (s.week || ''));
+        }
+        case 'client': return s.client || '';
+        case 'manager': return s.manager || '';
+        case 'os': return s.os || '';
+        case 'description': return s.description || '';
+        case 'hp': return String(s.hp ?? '');
+        case 'ht': return String(s.ht ?? '');
+        case 'hv': return String(s.hv ?? '');
+        case 'startDate': return s.startDate || '';
+        case 'endDate': return s.endDate || '';
+        case 'technicianIds':
+            return (s.technicianIds || [])
+                .map(id => techs.find(t => t.id === id)?.name || '')
+                .filter(Boolean)
+                .join(', ');
+        case 'lastCalibration': return s.lastCalibration || '';
+        case 'period': return String(s.period ?? 0);
+        case 'nextCal': return calculateCalibration(s.startDate, s.lastCalibration, s.period).nextCalText;
+        case 'status': return s.status;
+        case 'forecast': return calculateServiceForecast(s.startDate, s.endDate, s.period).forecastText;
+        case 'comments': return (s.comments || '').trim();
+        default: return '';
+    }
+};
+
+/** Chave de ordenacao. Datas ISO ordenam bem como texto; dd/MM/yyyy nao, entao
+ *  Prox. Calibracao e Previsao ordenam pela data computada, nao pelo texto. */
+const sortValue = (s: Service, key: string, techs: Technician[]): string | number => {
+    if (NUMERIC_COLS.has(key)) return Number(cellValue(s, key, techs)) || 0;
+    if (key === 'nextCal') {
+        const d = calculateCalibration(s.startDate, s.lastCalibration, s.period).forecastDate;
+        return d ? d.getTime() : -Infinity;
+    }
+    if (key === 'forecast') {
+        const d = calculateServiceForecast(s.startDate, s.endDate, s.period).forecastStartDate;
+        return d ? d.getTime() : -Infinity;
+    }
+    return cellValue(s, key, techs).toLowerCase();
+};
+
+const BLANK_LABEL = '(vazio)';
+
+const ColumnFilter: React.FC<{
+    label: string;
+    options: string[];
+    selected?: Set<string>;
+    sortDir: SortDir | null;
+    isOpen: boolean;
+    onToggleOpen: () => void;
+    onClose: () => void;
+    onSort: () => void;
+    onChange: (next?: Set<string>) => void;
+    align?: 'left' | 'center';
+    popoverAlign?: 'left' | 'right';
+}> = ({ label, options, selected, sortDir, isOpen, onToggleOpen, onClose, onSort, onChange, align = 'left', popoverAlign = 'left' }) => {
+    const [search, setSearch] = useState('');
+    const ref = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+        };
+        if (isOpen) document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [isOpen, onClose]);
+
+    const isFiltered = selected !== undefined;
+    const allChecked = !selected || selected.size === options.length;
+    const shown = options.filter(o => o.toLowerCase().includes(search.toLowerCase()));
+
+    const toggleValue = (v: string) => {
+        const base = selected ? new Set(selected) : new Set(options);
+        if (base.has(v)) base.delete(v); else base.add(v);
+        // Set completo === sem filtro: evita guardar filtro que nao filtra nada.
+        onChange(base.size === options.length ? undefined : base);
+    };
+
+    return (
+        <div className="relative" ref={ref}>
+            <div className={`flex items-center gap-1 ${align === 'center' ? 'justify-center' : 'justify-start'}`}>
+                <button
+                    type="button"
+                    onClick={onSort}
+                    className="font-semibold uppercase text-slate-500 hover:text-abb-red transition-colors truncate cursor-pointer select-none flex items-center gap-0.5"
+                    title="Clique para ordenar (A-Z / Z-A)"
+                >
+                    <span>{label}</span>
+                </button>
+                {sortDir === 'asc' && <ArrowUp size={12} className="text-abb-red shrink-0" />}
+                {sortDir === 'desc' && <ArrowDown size={12} className="text-abb-red shrink-0" />}
+                <button
+                    type="button"
+                    onClick={onToggleOpen}
+                    className={`p-1 rounded transition-all shrink-0 cursor-pointer ${
+                        isFiltered 
+                            ? 'text-abb-red bg-abb-red/15 border border-abb-red/30 shadow-xs' 
+                            : 'text-slate-300 hover:text-slate-600 hover:bg-slate-200/60'
+                    }`}
+                    title={isFiltered ? `Filtro ativo (${selected?.size} selecionado(s))` : 'Filtrar coluna'}
+                >
+                    {isFiltered ? <Filter size={11} className="fill-abb-red/20" /> : <ListFilter size={11} />}
+                </button>
+            </div>
+
+            {isOpen && (
+                <div className={`absolute top-full ${popoverAlign === 'right' ? 'right-0' : 'left-0'} mt-1 w-56 bg-white border border-slate-200 rounded-lg shadow-xl z-50 flex flex-col normal-case text-left`}>
+                    <div className="p-2 border-b border-slate-100">
+                        <input
+                            autoFocus
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Buscar..."
+                            className="w-full px-2 py-1 text-xs font-normal border border-slate-200 rounded focus:outline-none focus:border-abb-red/50"
+                        />
+                    </div>
+
+                    <label className="flex items-center gap-2 px-2 py-1.5 text-xs font-semibold text-slate-700 border-b border-slate-100 cursor-pointer hover:bg-slate-50">
+                        <input
+                            type="checkbox"
+                            checked={allChecked}
+                            onChange={() => onChange(allChecked ? new Set<string>() : undefined)}
+                            className="w-3.5 h-3.5 accent-abb-red cursor-pointer"
+                        />
+                        (Selecionar tudo)
+                    </label>
+
+                    <div className="overflow-y-auto max-h-52 py-1">
+                        {shown.map(opt => (
+                            <label
+                                key={opt}
+                                className="flex items-center gap-2 px-2 py-1 text-xs font-normal text-slate-700 cursor-pointer hover:bg-slate-50"
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={!selected || selected.has(opt)}
+                                    onChange={() => toggleValue(opt)}
+                                    className="w-3.5 h-3.5 accent-abb-red cursor-pointer shrink-0"
+                                />
+                                <span className="truncate" title={opt}>{opt}</span>
+                            </label>
+                        ))}
+                        {shown.length === 0 && (
+                            <div className="px-2 py-3 text-center text-[11px] font-normal text-slate-400">
+                                Nenhum valor
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 p-2 border-t border-slate-100 bg-slate-50">
+                        <button
+                            type="button"
+                            onClick={() => { onChange(undefined); setSearch(''); }}
+                            className="px-2 py-1 text-[11px] font-medium text-slate-500 hover:text-slate-700 rounded hover:bg-slate-200/60 transition-colors cursor-pointer"
+                        >
+                            Limpar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-3 py-1 text-[11px] font-bold text-white bg-abb-red hover:brightness-110 rounded transition-all cursor-pointer"
+                        >
+                            Aplicar
+                        </button>
                     </div>
                 </div>
             )}
@@ -201,8 +388,123 @@ const PeriodCell = ({
     );
 };
 
-export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians, clients, onUpdate, onDelete, canEdit = true }) => {
+export const ServiceGrid: React.FC<ServiceGridProps> = ({
+    services,
+    technicians,
+    clients,
+    onUpdate,
+    onDelete,
+    onBatchStatusUpdate,
+    onBatchDelete,
+    canEdit = true
+}) => {
     const [activeCommentService, setActiveCommentService] = useState<{ id: string; client: string; os: string; comments: string } | null>(null);
+
+    // --- Selecao em massa ---
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [bulkStatus, setBulkStatus] = useState<ServiceStatus>(ServiceStatus.CONFIRMED);
+    const headerCheckboxRef = useRef<HTMLInputElement>(null);
+
+    // --- Filtro e ordenacao por coluna ---
+    const [sortKey, setSortKey] = useState<string | null>(null);
+    const [sortDir, setSortDir] = useState<SortDir | null>(null);
+    const [colFilters, setColFilters] = useState<Record<string, Set<string>>>({});
+    const [openFilterKey, setOpenFilterKey] = useState<string | null>(null);
+
+    // Ciclo do clique no cabecalho: asc -> desc -> sem ordenacao (volta ao padrao do App).
+    const cycleSort = (key: string) => {
+        if (sortKey !== key) { setSortKey(key); setSortDir('asc'); return; }
+        if (sortDir === 'asc') { setSortDir('desc'); return; }
+        setSortKey(null);
+        setSortDir(null);
+    };
+
+    const setColumnFilter = (key: string, next?: Set<string>) => {
+        setColFilters(prev => {
+            const copy = { ...prev };
+            if (next === undefined) delete copy[key]; else copy[key] = next;
+            return copy;
+        });
+    };
+
+    const optionsFor = (key: string): string[] =>
+        Array.from(new Set(services.map(s => cellValue(s, key, technicians) || BLANK_LABEL))).sort((a, b) =>
+            a.localeCompare(b, 'pt-BR', { numeric: true })
+        );
+
+    const displayedServices = useMemo(() => {
+        const activeKeys = Object.keys(colFilters);
+        const filtered = activeKeys.length === 0
+            ? services
+            : services.filter(s =>
+                activeKeys.every(k => colFilters[k].has(cellValue(s, k, technicians) || BLANK_LABEL))
+            );
+
+        if (!sortKey || !sortDir) return filtered;
+
+        const dir = sortDir === 'asc' ? 1 : -1;
+        return [...filtered].sort((a, b) => {
+            const va = sortValue(a, sortKey, technicians);
+            const vb = sortValue(b, sortKey, technicians);
+            if (va < vb) return -1 * dir;
+            if (va > vb) return 1 * dir;
+            return 0;
+        });
+    }, [services, technicians, colFilters, sortKey, sortDir]);
+
+    // A selecao efetiva e derivada da lista JA filtrada por coluna: sem isso, o checkbox
+    // do cabecalho marcaria linhas escondidas e a acao em massa mudaria o status de
+    // atividades que o usuario nem esta vendo.
+    const selectedVisibleIds = displayedServices.filter(s => selectedIds.has(s.id)).map(s => s.id);
+    const allVisibleSelected = displayedServices.length > 0 && selectedVisibleIds.length === displayedServices.length;
+    const someVisibleSelected = selectedVisibleIds.length > 0 && !allVisibleSelected;
+
+    // indeterminate so existe via DOM, nao ha atributo JSX equivalente.
+    useEffect(() => {
+        if (headerCheckboxRef.current) {
+            headerCheckboxRef.current.indeterminate = someVisibleSelected;
+        }
+    }, [someVisibleSelected]);
+
+    const toggleOne = (id: string) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
+    };
+
+    const toggleAllVisible = () => {
+        setSelectedIds(allVisibleSelected ? new Set() : new Set(displayedServices.map(s => s.id)));
+    };
+
+    const applyBulkStatus = () => {
+        if (selectedVisibleIds.length === 0) return;
+        if (onBatchStatusUpdate) {
+            onBatchStatusUpdate(selectedVisibleIds, bulkStatus);
+        } else {
+            selectedVisibleIds.forEach(id => onUpdate(id, 'status', bulkStatus));
+        }
+        setSelectedIds(new Set());
+    };
+
+    const handleBulkDelete = () => {
+        if (selectedVisibleIds.length === 0) return;
+        if (onBatchDelete) {
+            onBatchDelete(selectedVisibleIds);
+            setSelectedIds(new Set());
+        } else {
+            const confirmDelete = window.confirm(`Tem certeza que deseja excluir ${selectedVisibleIds.length} atividade(s) selecionada(s)?`);
+            if (confirmDelete) {
+                selectedVisibleIds.forEach(id => onDelete(id));
+                setSelectedIds(new Set());
+            }
+        }
+    };
 
     // Reusable Input Cell Component for Text/Numbers
     const EditableCell = ({
@@ -275,9 +577,13 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
             // Logical Validation: End date before start date
             const isRangeInvalid = isStartDateValid && isEndDateValid && endObj < startObj;
 
+            const isSelected = selectedIds.has(service.id);
+            // Erro de data vence o destaque de selecao: e um estado que precisa continuar visivel.
             const rowBgClass = isRangeInvalid
                 ? 'bg-red-50/80 hover:bg-red-100'
-                : 'hover:bg-abb-red/5';
+                : isSelected
+                    ? 'bg-abb-red/10 hover:bg-abb-red/15'
+                    : 'hover:bg-abb-red/5';
 
             const clientConflicts = getClientConflicts(services, service.client, service.startDate, service.endDate, service.id);
             const hasClientOverlap = clientConflicts.length > 0;
@@ -285,6 +591,18 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
 
             return (
                 <tr key={service.id} className={`${rowBgClass} transition-colors group`}>
+
+                    {canEdit && (
+                        <td className="p-0 h-10 border-b border-slate-100 text-center w-10 min-w-[40px]">
+                            <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleOne(service.id)}
+                                className="w-3.5 h-3.5 accent-abb-red cursor-pointer align-middle"
+                                title="Selecionar atividade"
+                            />
+                        </td>
+                    )}
 
                     <td className="p-0 h-10 border-b border-slate-100 text-center">
                         <span className="font-medium text-slate-500 text-xs">
@@ -518,28 +836,59 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                 <table className="w-full min-w-[1800px] text-xs whitespace-nowrap border-collapse">
                     <thead className="sticky top-0 z-30">
                         <tr className="bg-slate-50 shadow-sm">
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-12 min-w-[48px]">Sem.</th>
-                            <th className="px-2 py-3 text-left font-semibold uppercase text-slate-500 border-b border-slate-200 min-w-[200px]">Cliente</th>
-                            <th className="px-2 py-3 text-left font-semibold uppercase text-slate-500 border-b border-slate-200 w-24 min-w-[85px]">Manager</th>
-                            <th className="px-2 py-3 text-left font-semibold uppercase text-slate-500 border-b border-slate-200 w-28 min-w-[100px]">OS</th>
-                            <th className="px-2 py-3 text-left font-semibold uppercase text-slate-500 border-b border-slate-200 min-w-[160px]">Descrição</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-16 min-w-[60px]">HP</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-16 min-w-[60px]">HT</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-16 min-w-[60px]">HV</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-32 min-w-[125px]">Início</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-32 min-w-[125px]">Fim</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-28 min-w-[100px]">Exec.</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-32 min-w-[125px]">Últ. Cal.</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-20 min-w-[70px]">Período</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-36 min-w-[145px]">Próx. Calibração</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-36 min-w-[140px]">Status</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-44 min-w-[170px]">Previsão</th>
-                            <th className="px-2 py-3 text-center font-semibold uppercase text-slate-500 border-b border-slate-200 w-40 min-w-[150px]">Comentários</th>
+                            {canEdit && (
+                                <th className="px-2 py-3 text-center border-b border-slate-200 w-10 min-w-[40px]">
+                                    <input
+                                        ref={headerCheckboxRef}
+                                        type="checkbox"
+                                        checked={allVisibleSelected}
+                                        onChange={toggleAllVisible}
+                                        disabled={displayedServices.length === 0}
+                                        className="w-3.5 h-3.5 accent-abb-red cursor-pointer align-middle disabled:cursor-not-allowed disabled:opacity-40"
+                                        title="Selecionar todas as atividades visíveis"
+                                    />
+                                </th>
+                            )}
+                            {([
+                                { key: 'week', label: 'Sem.', cls: 'w-12 min-w-[48px]', align: 'center' as const, popoverAlign: 'left' as const },
+                                { key: 'client', label: 'Cliente', cls: 'min-w-[200px]', align: 'left' as const, popoverAlign: 'left' as const },
+                                { key: 'manager', label: 'Manager', cls: 'w-24 min-w-[85px]', align: 'left' as const, popoverAlign: 'left' as const },
+                                { key: 'os', label: 'OS', cls: 'w-28 min-w-[100px]', align: 'left' as const, popoverAlign: 'left' as const },
+                                { key: 'description', label: 'Descrição', cls: 'min-w-[160px]', align: 'left' as const, popoverAlign: 'left' as const },
+                                { key: 'hp', label: 'HP', cls: 'w-16 min-w-[60px]', align: 'center' as const, popoverAlign: 'left' as const },
+                                { key: 'ht', label: 'HT', cls: 'w-16 min-w-[60px]', align: 'center' as const, popoverAlign: 'left' as const },
+                                { key: 'hv', label: 'HV', cls: 'w-16 min-w-[60px]', align: 'center' as const, popoverAlign: 'left' as const },
+                                { key: 'startDate', label: 'Início', cls: 'w-32 min-w-[125px]', align: 'center' as const, popoverAlign: 'left' as const },
+                                { key: 'endDate', label: 'Fim', cls: 'w-32 min-w-[125px]', align: 'center' as const, popoverAlign: 'left' as const },
+                                { key: 'technicianIds', label: 'Exec.', cls: 'w-28 min-w-[100px]', align: 'center' as const, popoverAlign: 'left' as const },
+                                { key: 'lastCalibration', label: 'Últ. Cal.', cls: 'w-32 min-w-[125px]', align: 'center' as const, popoverAlign: 'left' as const },
+                                { key: 'period', label: 'Período', cls: 'w-20 min-w-[70px]', align: 'center' as const, popoverAlign: 'left' as const },
+                                { key: 'nextCal', label: 'Próx. Calibração', cls: 'w-36 min-w-[145px]', align: 'center' as const, popoverAlign: 'right' as const },
+                                { key: 'status', label: 'Status', cls: 'w-36 min-w-[140px]', align: 'center' as const, popoverAlign: 'right' as const },
+                                { key: 'forecast', label: 'Previsão', cls: 'w-44 min-w-[170px]', align: 'center' as const, popoverAlign: 'right' as const },
+                                { key: 'comments', label: 'Comentários', cls: 'w-40 min-w-[150px]', align: 'left' as const, popoverAlign: 'right' as const },
+                            ]).map(col => (
+                                <th key={col.key} className={`px-2 py-3 text-xs border-b border-slate-200 ${col.cls}`}>
+                                    <ColumnFilter
+                                        label={col.label}
+                                        align={col.align}
+                                        popoverAlign={col.popoverAlign}
+                                        options={optionsFor(col.key)}
+                                        selected={colFilters[col.key]}
+                                        sortDir={sortKey === col.key ? sortDir : null}
+                                        isOpen={openFilterKey === col.key}
+                                        onToggleOpen={() => setOpenFilterKey(openFilterKey === col.key ? null : col.key)}
+                                        onClose={() => setOpenFilterKey(null)}
+                                        onSort={() => cycleSort(col.key)}
+                                        onChange={(next) => setColumnFilter(col.key, next)}
+                                    />
+                                </th>
+                            ))}
                             {canEdit && <th className="w-12 min-w-[48px] border-b border-slate-200"></th>}
                         </tr>
                     </thead>
                     <tbody>
-                        {renderRows(services)}
+                        {renderRows(displayedServices)}
                     </tbody>
                 </table>
             </div>
@@ -604,6 +953,72 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({ services, technicians,
                             )}
                         </div>
                     </div>
+                </div>
+            )}
+
+            {/* Barra Flutuante de Ações em Massa no Rodapé */}
+            {canEdit && selectedVisibleIds.length > 0 && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center flex-wrap gap-3 bg-slate-900/95 backdrop-blur-md text-white px-5 py-3 rounded-2xl shadow-2xl border border-slate-700/80 animate-in fade-in slide-in-from-bottom-5 duration-200">
+                    <div className="flex items-center gap-2">
+                        <span className="flex items-center justify-center min-w-[24px] h-6 px-1.5 bg-abb-red text-white font-bold text-xs rounded-full shadow-sm">
+                            {selectedVisibleIds.length}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-200 whitespace-nowrap">
+                            {selectedVisibleIds.length === 1 ? 'atividade selecionada' : 'atividades selecionadas'}
+                        </span>
+                        <span className="text-[11px] text-slate-400 hidden sm:inline whitespace-nowrap">
+                            (de {displayedServices.length} visíveis)
+                        </span>
+                    </div>
+
+                    <div className="h-5 w-px bg-slate-700 mx-0.5" />
+
+                    <div className="flex items-center gap-2">
+                        <label className="text-xs font-medium text-slate-300 whitespace-nowrap">
+                            Alterar status:
+                        </label>
+                        <select
+                            value={bulkStatus}
+                            onChange={(e) => setBulkStatus(e.target.value as ServiceStatus)}
+                            className="bg-slate-800 border border-slate-600 text-white rounded-lg text-xs px-2.5 py-1.5 focus:outline-none focus:border-abb-red focus:ring-1 focus:ring-abb-red transition-all cursor-pointer font-medium"
+                        >
+                            {Object.values(ServiceStatus).map(s => (
+                                <option key={s} value={s} className="bg-slate-800 text-white">
+                                    {s}
+                                </option>
+                            ))}
+                        </select>
+                        <button
+                            type="button"
+                            onClick={applyBulkStatus}
+                            className="px-3.5 py-1.5 bg-abb-red hover:bg-red-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                            title="Aplicar status a todas as atividades selecionadas"
+                        >
+                            <Check size={14} /> Aplicar
+                        </button>
+                    </div>
+
+                    <div className="h-5 w-px bg-slate-700 mx-0.5" />
+
+                    <button
+                        type="button"
+                        onClick={handleBulkDelete}
+                        className="px-3 py-1.5 text-xs font-medium text-red-400 hover:text-white hover:bg-red-600/80 rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                        title="Excluir todas as atividades selecionadas"
+                    >
+                        <Trash2 size={13} /> Excluir
+                    </button>
+
+                    <div className="h-5 w-px bg-slate-700 mx-0.5" />
+
+                    <button
+                        type="button"
+                        onClick={() => setSelectedIds(new Set())}
+                        className="px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                        title="Desmarcar todas as seleções"
+                    >
+                        <X size={14} /> Limpar
+                    </button>
                 </div>
             )}
         </div>

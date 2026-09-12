@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 graphify-out/
 
+# Estado local do LoopX / metas Codex - nao versionar
+.loopx/
+.codex/
+

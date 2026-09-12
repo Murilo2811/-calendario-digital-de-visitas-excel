@@ -671,6 +671,37 @@ const App: React.FC = () => {
         showToast('Atividade removida.');
     };
 
+    const handleBatchStatusUpdate = (ids: string[], newStatus: ServiceStatus) => {
+        if (ids.length === 0) return;
+        const targetIds = new Set(ids);
+        const today = startOfDay(new Date());
+
+        setServices(prev => prev.map(s => {
+            if (!targetIds.has(s.id)) return s;
+
+            const updatedService = { ...s, status: newStatus };
+            if (newStatus === ServiceStatus.CONFIRMED) {
+                const end = parseISO(updatedService.endDate);
+                if (isValid(end) && isBefore(end, today)) {
+                    updatedService.lastCalibration = updatedService.endDate;
+                }
+            }
+            return updatedService;
+        }));
+
+        showToast(`Status de ${ids.length} atividade(s) atualizado para "${newStatus}".`);
+    };
+
+    const handleBatchDelete = (ids: string[]) => {
+        if (ids.length === 0) return;
+        const confirmDelete = window.confirm(`Tem certeza que deseja excluir ${ids.length} atividade(s) selecionada(s)?`);
+        if (!confirmDelete) return;
+
+        const targetIds = new Set(ids);
+        setServices(prev => prev.filter(s => !targetIds.has(s.id)));
+        showToast(`${ids.length} atividade(s) removida(s).`);
+    };
+
     const handleServiceMove = (id: string, newStartDate: string, newTechId: string, oldTechId: string) => {
         const serviceToMove = services.find(s => s.id === id);
         if (!serviceToMove) return;
@@ -1446,6 +1477,8 @@ const App: React.FC = () => {
                         clients={clients}
                         onUpdate={updateService}
                         onDelete={deleteService}
+                        onBatchStatusUpdate={handleBatchStatusUpdate}
+                        onBatchDelete={handleBatchDelete}
                         canEdit={userCanEdit}
                     />
                 ) : (
