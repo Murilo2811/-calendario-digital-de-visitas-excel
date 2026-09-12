@@ -473,7 +473,8 @@ export const exportToExcel = (services: Service[], technicians: Technician[]) =>
 };
 
 /**
- * Filtra serviços com base no período selecionado (ano e mês).
+ * Filtra serviços com base no período selecionado (ano e mês),
+ * considerando EXCLUSIVAMENTE a Data de Início (startDate).
  * month: -1 indica 'Ano Inteiro'; 0 a 11 representam Janeiro a Dezembro.
  */
 export const filterServicesByPeriod = (
@@ -496,22 +497,14 @@ export const filterServicesByPeriod = (
 
   return services.filter(s => {
     const rawStart = (s.startDate || '').trim();
-    const rawEnd = (s.endDate || '').trim();
 
-    // Se nenhuma data foi fornecida:
-    if (!rawStart && !rawEnd) {
-      // Exibe apenas na visão de Ano Inteiro para permitir identificação e edição
+    // Se não tiver data de início cadastrada:
+    if (!rawStart) {
+      // Exibe apenas na visão de Ano Inteiro para permitir identificação e preenchimento
       return selectedMonth === -1;
     }
 
-    const effectiveStart = rawStart || rawEnd;
-    const effectiveEnd = rawEnd || rawStart;
-
-    // Normaliza caso início seja posterior ao fim
-    const startStr = effectiveStart <= effectiveEnd ? effectiveStart : effectiveEnd;
-    const endStr = effectiveStart <= effectiveEnd ? effectiveEnd : effectiveStart;
-
-    // Checagem de sobreposição de intervalos:
-    return startStr <= periodEndStr && endStr >= periodStartStr;
+    // Filtra estritamente pela Data de Início dentro do intervalo do período selecionado
+    return rawStart >= periodStartStr && rawStart <= periodEndStr;
   });
 };
