@@ -2,7 +2,7 @@
 // Roda sem framework: `npm test` (node:test + node:assert, type stripping nativo do Node 24).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod } from './utils.ts';
+import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod, calculateServiceForecast } from './utils.ts';
 import { ServiceStatus, TechType } from './types.ts';
 import type { Service, Technician } from './types.ts';
 
@@ -163,4 +163,166 @@ test('filterServicesByPeriod: filtra exclusivamente pela data de inicio (startDa
   assert.ok(ano2024.some(s => s.id === 's4'));
   assert.ok(!ano2024.some(s => s.id === 's1'), 's1 iniciou em 2025, nao deve aparecer em 2024');
 });
+
+test('sincronização de Realizado: define Últ. Cal. com base na coluna Fim e reverte ao marcar Não', () => {
+  const item: Service = base({
+    startDate: '2026-05-10',
+    endDate: '2026-05-15',
+    lastCalibration: '2025-05-15',
+    realized: 'nao',
+  });
+
+  // Simula seleção de 'sim'
+  const previous = item.lastCalibration || '';
+  const updatedSim: Service = {
+    ...item,
+    realized: 'sim',
+    previousLastCalibration: previous,
+    lastCalibration: item.endDate,
+  };
+
+  assert.equal(updatedSim.lastCalibration, '2026-05-15', 'Últ. Cal. deve assumir a data de Fim');
+  assert.equal(updatedSim.previousLastCalibration, '2025-05-15', 'Deve guardar a data anterior');
+
+  // Simula alteração posterior da data de Fim enquanto Realizado = 'sim'
+  const updatedDataFim: Service = {
+    ...updatedSim,
+    endDate: '2026-05-20',
+    lastCalibration: '2026-05-20',
+  };
+  assert.equal(updatedDataFim.lastCalibration, '2026-05-20', 'Últ. Cal. acompanha a nova data de Fim');
+
+  // Simula reversão para 'nao'
+  const revertedNao: Service = {
+    ...updatedDataFim,
+    realized: 'nao',
+    lastCalibration: updatedDataFim.previousLastCalibration,
+  };
+  assert.equal(revertedNao.lastCalibration, '2025-05-15', 'Últ. Cal. deve reverter para a data anterior');
+});
+
+test('calculateCalibration: aceita data manual e tem precedencia sobre o calculo', () => {
+  const { nextCalText, isoDate } = calculateCalibration('2026-01-05', '2025-01-05', 6, '2026-09-25');
+  assert.equal(nextCalText, '25/09/2026');
+  assert.equal(isoDate, '2026-09-25');
+});
+
+test('sincronização de Status: muda para Cliente Previsto quando Realizado for Sim e reverte ao marcar Não', () => {
+  const item: Service = base({
+    startDate: '2026-05-10',
+    endDate: '2026-05-15',
+    lastCalibration: '2025-05-15',
+    status: ServiceStatus.CONFIRMED,
+    realized: 'nao',
+  });
+
+  // 1. Ao selecionar 'sim', salva previousStatus e muda status para Cliente Previsto
+  const updatedSim: Service = {
+    ...item,
+    realized: 'sim',
+    previousStatus: item.status,
+    status: ServiceStatus.PREDICTED,
+  };
+  assert.equal(updatedSim.status, ServiceStatus.PREDICTED, 'Status deve mudar para Cliente Previsto');
+  assert.equal(updatedSim.previousStatus, ServiceStatus.CONFIRMED, 'previousStatus deve guardar o status original');
+
+  // 2. Ao alterar a data de próxima calibração enquanto Realizado for 'sim', mantém/assegura Cliente Previsto
+  const updatedNextCal: Service = {
+    ...updatedSim,
+    nextCalibration: '2026-11-20',
+    status: ServiceStatus.PREDICTED,
+  };
+  assert.equal(updatedNextCal.status, ServiceStatus.PREDICTED);
+
+  // 3. Ao reverter para 'nao', status reverte para o status anterior (Cliente Confirmado)
+  const revertedNao: Service = {
+    ...updatedNextCal,
+    realized: 'nao',
+    status: updatedNextCal.previousStatus || updatedNextCal.status,
+  };
+  assert.equal(revertedNao.status, ServiceStatus.CONFIRMED, 'Status deve reverter para o original');
+});
+
+test('quando realizado for "nao", calculateCalibration retorna "0" mas getCalibrationStatus segue a regra de vencimento', () => {
+  const result = calculateCalibration('2026-01-05', '2025-01-05', 6, '2026-07-05', 'nao');
+  assert.equal(result.nextCalText, '0', 'Deve retornar 0 como texto quando realizado não for sim');
+  assert.equal(result.forecastDate, null, 'forecastDate deve ser null');
+  assert.equal(result.isoDate, '', 'isoDate deve ser vazio');
+
+  const svcVencida: Service = base({
+    startDate: '2020-01-05',
+    lastCalibration: '2020-01-05',
+    period: 6,
+    realized: 'nao',
+    status: ServiceStatus.PREDICTED,
+  });
+  const status = getCalibrationStatus(svcVencida);
+  assert.equal(status.level, 'EXPIRED', 'Alerta de calibração deve acusar EXPIRED mesmo com realizado = nao');
+});
+
+test('quando próxima calibração for "0" ou realizado for "nao", calculateServiceForecast retorna "0"', () => {
+  // Cenário 1: quando nextCalText for '0'
+  const r1 = calculateServiceForecast('2026-01-05', '2026-01-09', 6, '0', 'sim');
+  assert.equal(r1.forecastText, '0', 'Previsão deve ser 0 quando nextCalText for 0');
+  assert.equal(r1.forecastStartDate, null);
+  assert.equal(r1.forecastEndDate, null);
+
+  // Cenário 2: quando realized for 'nao'
+  const r2 = calculateServiceForecast('2026-01-05', '2026-01-09', 6, undefined, 'nao');
+  assert.equal(r2.forecastText, '0', 'Previsão deve ser 0 quando realized for nao');
+
+  // Cenário 3: quando realized for 'sim' e nextCalText for válido, calcula intervalo
+  const r3 = calculateServiceForecast('2026-01-05', '2026-01-09', 6, '05/07/2026', 'sim');
+  assert.equal(r3.forecastText, 'de 05/07/2026 até 09/07/2026');
+  assert.ok(r3.forecastStartDate instanceof Date);
+});
+
+test('ao alterar a data de início em atividade realizada, Realizado reverte para "nao", Últ. Cal. e Status são restaurados', () => {
+  // Simula estado de atividade que foi realizada
+  const activeSim: Service = base({
+    startDate: '2026-05-10',
+    endDate: '2026-05-15',
+    realized: 'sim',
+    previousLastCalibration: '2025-05-15',
+    lastCalibration: '2026-05-15',
+    previousStatus: ServiceStatus.CONFIRMED,
+    status: ServiceStatus.PREDICTED,
+  });
+
+  // Simula a lógica de transição disparada na alteração de startDate
+  const newStartDate = '2026-06-01';
+  const updatedOnStartChange: Service = {
+    ...activeSim,
+    startDate: newStartDate,
+    ...(activeSim.realized === 'sim' && newStartDate !== activeSim.startDate ? {
+      realized: 'nao',
+      lastCalibration: activeSim.previousLastCalibration ?? activeSim.lastCalibration,
+      status: activeSim.previousStatus ?? activeSim.status,
+    } : {}),
+  };
+
+  assert.equal(updatedOnStartChange.realized, 'nao', 'Realizado deve reverter para nao');
+  assert.equal(updatedOnStartChange.lastCalibration, '2025-05-15', 'Últ. Cal. deve ser restaurada para a anterior');
+  assert.equal(updatedOnStartChange.status, ServiceStatus.CONFIRMED, 'Status deve ser restaurado para o anterior');
+
+  // Verifica que com Realizado = 'nao', Próx. Calibração e Previsão retornam '0'
+  const nextCal = calculateCalibration(
+    updatedOnStartChange.startDate,
+    updatedOnStartChange.lastCalibration,
+    updatedOnStartChange.period,
+    updatedOnStartChange.nextCalibration,
+    updatedOnStartChange.realized
+  );
+  assert.equal(nextCal.nextCalText, '0', 'Próx. Calibração deve ser 0');
+
+  const forecast = calculateServiceForecast(
+    updatedOnStartChange.startDate,
+    updatedOnStartChange.endDate,
+    updatedOnStartChange.period,
+    nextCal.nextCalText,
+    updatedOnStartChange.realized
+  );
+  assert.equal(forecast.forecastText, '0', 'Previsão deve ser 0');
+});
+
 

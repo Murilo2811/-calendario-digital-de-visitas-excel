@@ -114,6 +114,7 @@ export interface CalibrationStatusInfo {
  * Analyzes the calibration expiration status of a service.
  */
 export const getCalibrationStatus = (service: Service): CalibrationStatusInfo => {
+
   if (!service.period || service.period <= 0) {
     return {
       level: 'NONE',
@@ -135,31 +136,37 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
     };
   }
 
-  const baseDateStr = (service.startDate && isValid(parseISO(service.startDate)))
-    ? service.startDate
-    : (service.lastCalibration || service.endDate);
-  if (!baseDateStr) {
-    return {
-      level: 'NONE',
-      daysRemaining: null,
-      targetDate: null,
-      targetDateText: '-',
-      isForecast: false
-    };
+  let nextCalDate: Date;
+  if (service.nextCalibration && isValid(parseISO(service.nextCalibration))) {
+    nextCalDate = parseISO(service.nextCalibration);
+  } else {
+    const baseDateStr = (service.startDate && isValid(parseISO(service.startDate)))
+      ? service.startDate
+      : (service.lastCalibration || service.endDate);
+    if (!baseDateStr) {
+      return {
+        level: 'NONE',
+        daysRemaining: null,
+        targetDate: null,
+        targetDateText: '-',
+        isForecast: false
+      };
+    }
+
+    const baseDate = parseISO(baseDateStr);
+    if (!isValid(baseDate)) {
+      return {
+        level: 'NONE',
+        daysRemaining: null,
+        targetDate: null,
+        targetDateText: '-',
+        isForecast: false
+      };
+    }
+
+    nextCalDate = addMonths(baseDate, service.period);
   }
 
-  const baseDate = parseISO(baseDateStr);
-  if (!isValid(baseDate)) {
-    return {
-      level: 'NONE',
-      daysRemaining: null,
-      targetDate: null,
-      targetDateText: '-',
-      isForecast: false
-    };
-  }
-
-  const nextCalDate = addMonths(baseDate, service.period);
   const today = startOfDay(new Date());
   const diffDays = differenceInDays(nextCalDate, today);
   const targetDateText = format(nextCalDate, 'dd/MM/yyyy', { locale: ptBR });
@@ -349,9 +356,23 @@ export const calculateDuration = (start: string, end: string): number => {
  * Calculates the next calibration date and forecast string based on startDate (or lastCal) + period
  * Format: dd/MM/yyyy (padrão brasileiro)
  */
-export const calculateCalibration = (startDate?: string, lastCal?: string, period?: number) => {
+export const calculateCalibration = (startDate?: string, lastCal?: string, period?: number, manualNextCal?: string, realized?: 'sim' | 'nao') => {
+    // Se a atividade for marcada como Não realizada, a Próxima Calibração é "0"
+    if (realized && realized !== 'sim') {
+        return { nextCalText: '0', forecastDate: null, isoDate: '' };
+    }
+
+    if (manualNextCal && isValid(parseISO(manualNextCal))) {
+        const manualDate = parseISO(manualNextCal);
+        return {
+            nextCalText: format(manualDate, 'dd/MM/yyyy', { locale: ptBR }),
+            forecastDate: manualDate,
+            isoDate: manualNextCal
+        };
+    }
+
     if (!period || period <= 0) {
-        return { nextCalText: '***', forecastDate: null };
+        return { nextCalText: '***', forecastDate: null, isoDate: '' };
     }
     
     // Prioriza data da coluna Início (startDate); fallback para Última Calibração (lastCal)
@@ -360,25 +381,36 @@ export const calculateCalibration = (startDate?: string, lastCal?: string, perio
         : (lastCal && isValid(parseISO(lastCal)) ? lastCal : null);
 
     if (!baseDateStr) {
-        return { nextCalText: '***', forecastDate: null };
+        return { nextCalText: '***', forecastDate: null, isoDate: '' };
     }
 
     const baseDate = parseISO(baseDateStr);
-    if (!isValid(baseDate)) return { nextCalText: '-', forecastDate: null };
+    if (!isValid(baseDate)) return { nextCalText: '-', forecastDate: null, isoDate: '' };
 
     const nextDate = addMonths(baseDate, period);
     
     // "Proxima calibração": Formato completo dd/MM/yyyy (ex: 15/09/2026)
     const nextCalText = format(nextDate, 'dd/MM/yyyy', { locale: ptBR }); 
+    const isoDate = format(nextDate, 'yyyy-MM-dd');
 
-    return { nextCalText, forecastDate: nextDate };
+    return { nextCalText, forecastDate: nextDate, isoDate };
 };
 
 /**
  * Calculates the service forecast dates based on startDate, endDate + period (months)
  * Returns a string in the format "de [date] até [date]"
  */
-export const calculateServiceForecast = (startDate?: string, endDate?: string, period?: number) => {
+export const calculateServiceForecast = (
+    startDate?: string,
+    endDate?: string,
+    period?: number,
+    nextCalText?: string,
+    realized?: 'sim' | 'nao'
+) => {
+    if (nextCalText === '0' || (realized && realized !== 'sim')) {
+        return { forecastText: '0', forecastStartDate: null, forecastEndDate: null };
+    }
+
     if (!startDate || !endDate || !period || period <= 0) {
         return { forecastText: '***', forecastStartDate: null, forecastEndDate: null };
     }
@@ -421,8 +453,8 @@ export const exportToExcel = (services: Service[], technicians: Technician[]) =>
       .filter(Boolean)
       .join(', ');
 
-    const { nextCalText } = calculateCalibration(s.startDate, s.lastCalibration, s.period);
-    const { forecastText } = calculateServiceForecast(s.startDate, s.endDate, s.period);
+    const { nextCalText } = calculateCalibration(s.startDate, s.lastCalibration, s.period, s.nextCalibration, s.realized);
+    const { forecastText } = calculateServiceForecast(s.startDate, s.endDate, s.period, nextCalText, s.realized);
 
     return {
       'SEM.': s.week,
@@ -439,7 +471,7 @@ export const exportToExcel = (services: Service[], technicians: Technician[]) =>
       'REALIZADO': s.realized === 'sim' ? 'Sim' : 'Não',
       'LAST.CAL': s.lastCalibration || '',
       'PERIOD': s.period || 0,
-      'Proxima calibração': nextCalText,
+      'Proxima calibração': s.realized === 'sim' ? (s.nextCalibration || nextCalText) : '0',
       'Status': s.status,
       'Previsão': forecastText
     };

@@ -135,9 +135,12 @@ const cellValue = (s: Service, key: string, techs: Technician[]): string => {
             return s.realized === 'sim' ? 'Sim' : 'Não';
         case 'lastCalibration': return s.lastCalibration || '';
         case 'period': return String(s.period ?? 0);
-        case 'nextCal': return calculateCalibration(s.startDate, s.lastCalibration, s.period).nextCalText;
+        case 'nextCal': return calculateCalibration(s.startDate, s.lastCalibration, s.period, s.nextCalibration, s.realized).nextCalText;
         case 'status': return s.status;
-        case 'forecast': return calculateServiceForecast(s.startDate, s.endDate, s.period).forecastText;
+        case 'forecast': {
+            const nextCal = calculateCalibration(s.startDate, s.lastCalibration, s.period, s.nextCalibration, s.realized).nextCalText;
+            return calculateServiceForecast(s.startDate, s.endDate, s.period, nextCal, s.realized).forecastText;
+        }
         case 'comments': return (s.comments || '').trim();
         default: return '';
     }
@@ -148,11 +151,12 @@ const cellValue = (s: Service, key: string, techs: Technician[]): string => {
 const sortValue = (s: Service, key: string, techs: Technician[]): string | number => {
     if (NUMERIC_COLS.has(key)) return Number(cellValue(s, key, techs)) || 0;
     if (key === 'nextCal') {
-        const d = calculateCalibration(s.startDate, s.lastCalibration, s.period).forecastDate;
+        const d = calculateCalibration(s.startDate, s.lastCalibration, s.period, s.nextCalibration, s.realized).forecastDate;
         return d ? d.getTime() : -Infinity;
     }
     if (key === 'forecast') {
-        const d = calculateServiceForecast(s.startDate, s.endDate, s.period).forecastStartDate;
+        const nextCal = calculateCalibration(s.startDate, s.lastCalibration, s.period, s.nextCalibration, s.realized).nextCalText;
+        const d = calculateServiceForecast(s.startDate, s.endDate, s.period, nextCal, s.realized).forecastStartDate;
         return d ? d.getTime() : -Infinity;
     }
     return cellValue(s, key, techs).toLowerCase();
@@ -564,8 +568,8 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
 
     const renderRows = (list: Service[]) => {
         return list.map((service) => {
-            const { nextCalText } = calculateCalibration(service.startDate, service.lastCalibration, service.period);
-            const { forecastText, forecastStartDate } = calculateServiceForecast(service.startDate, service.endDate, service.period);
+            const { nextCalText, isoDate } = calculateCalibration(service.startDate, service.lastCalibration, service.period, service.nextCalibration, service.realized);
+            const { forecastText, forecastStartDate } = calculateServiceForecast(service.startDate, service.endDate, service.period, nextCalText, service.realized);
             const statusClass = getStatusColor(service.status);
             const isFutureForecast = forecastStartDate ? isFuture(forecastStartDate) : false;
             const forecastColor = isFutureForecast ? 'text-abb-red font-bold' : 'text-slate-600';
@@ -682,14 +686,32 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                     </td>
 
                     {/* Start Date Column */}
-                    <td className="p-0 border-b border-slate-100 relative h-10 w-32 min-w-[125px]">
-                        <input
-                            type="date"
-                            className={`grid-date-input w-full h-full bg-transparent text-center text-xs text-slate-700 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none transition-colors px-1 ${!isStartDateValid ? 'bg-red-50 text-red-600 font-bold' : ''} ${!canEdit ? 'cursor-default' : ''}`}
-                            value={service.startDate}
-                            onChange={(e) => onUpdate(service.id, 'startDate', e.target.value)}
-                            readOnly={!canEdit}
-                        />
+                    <td className="p-0 border-b border-slate-100 relative h-10 w-36 min-w-[135px]">
+                        <div className="flex items-center justify-center gap-1 h-full px-1">
+                            {service.realized !== 'sim' && calStatus.level === 'EXPIRED' && (
+                                <span
+                                    className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded shadow-sm shrink-0"
+                                    title={`Calibração Vencida (${calStatus.targetDateText})`}
+                                >
+                                    VENC
+                                </span>
+                            )}
+                            {service.realized !== 'sim' && calStatus.level === 'EXPIRING_SOON' && (
+                                <span
+                                    className="px-1.5 py-0.5 bg-amber-400 text-amber-950 font-bold text-[9px] rounded animate-pulse shadow-sm ring-1 ring-amber-300 shrink-0"
+                                    title={`Atenção: Vence em ${calStatus.daysRemaining} dias (${calStatus.targetDateText})`}
+                                >
+                                    {calStatus.daysRemaining}d
+                                </span>
+                            )}
+                            <input
+                                type="date"
+                                className={`grid-date-input flex-1 h-full bg-transparent text-center text-xs text-slate-700 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none transition-colors px-1 ${!isStartDateValid ? 'bg-red-50 text-red-600 font-bold' : ''} ${!canEdit ? 'cursor-default' : ''}`}
+                                value={service.startDate}
+                                onChange={(e) => onUpdate(service.id, 'startDate', e.target.value)}
+                                readOnly={!canEdit}
+                            />
+                        </div>
                         {!isStartDateValid && (
                             <div className="absolute right-1 top-1/2 -translate-y-1/2 text-red-500 pointer-events-none" title="Data Inválida">
                                 <AlertCircle size={12} />
@@ -728,7 +750,13 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                         <select
                             disabled={!canEdit}
                             value={service.realized === 'sim' ? 'sim' : 'nao'}
-                            onChange={(e) => onUpdate(service.id, 'realized', e.target.value as 'sim' | 'nao')}
+                            onChange={(e) => {
+                                const val = e.target.value as 'sim' | 'nao';
+                                if (val === 'sim' && !service.endDate) {
+                                    e.target.value = 'nao';
+                                }
+                                onUpdate(service.id, 'realized', val);
+                            }}
                             className={`w-full text-xs font-bold py-1 px-1.5 rounded-md border text-center transition-all outline-none cursor-pointer ${
                                 service.realized === 'sim'
                                     ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 focus:ring-1 focus:ring-emerald-400'
@@ -760,26 +788,39 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                         />
                     </td>
 
-                    <td className="px-2 py-1 border-b border-slate-100 text-center w-36 min-w-[145px]">
-                        <div className="flex items-center justify-center gap-1.5 whitespace-nowrap">
-                            {calStatus.level === 'EXPIRED' && (
-                                <span
-                                    className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded shadow-sm shrink-0"
-                                    title={`Calibração Vencida (${calStatus.targetDateText})`}
-                                >
-                                    VENC
-                                </span>
-                            )}
-                            {calStatus.level === 'EXPIRING_SOON' && (
-                                <span
-                                    className="px-1.5 py-0.5 bg-amber-400 text-amber-950 font-bold text-[9px] rounded animate-pulse shadow-sm ring-1 ring-amber-300 shrink-0"
-                                    title={`Atenção: Vence em ${calStatus.daysRemaining} dias (${calStatus.targetDateText})`}
-                                >
-                                    {calStatus.daysRemaining}d
-                                </span>
-                            )}
-                            <span className="text-xs font-medium text-slate-700 whitespace-nowrap">{nextCalText}</span>
-                        </div>
+                    <td className="p-0 border-b border-slate-100 relative h-10 w-36 min-w-[145px]">
+                        {service.realized !== 'sim' ? (
+                            <div className="flex items-center justify-center h-full w-full" title="0 (Não realizado)">
+                                <span className="text-xs font-bold text-slate-400">0</span>
+                            </div>
+                        ) : (
+                            <div className="flex items-center justify-center gap-1 h-full px-1">
+                                {calStatus.level === 'EXPIRED' && (
+                                    <span
+                                        className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded shadow-sm shrink-0"
+                                        title={`Calibração Vencida (${calStatus.targetDateText})`}
+                                    >
+                                        VENC
+                                    </span>
+                                )}
+                                {calStatus.level === 'EXPIRING_SOON' && (
+                                    <span
+                                        className="px-1.5 py-0.5 bg-amber-400 text-amber-950 font-bold text-[9px] rounded animate-pulse shadow-sm ring-1 ring-amber-300 shrink-0"
+                                        title={`Atenção: Vence em ${calStatus.daysRemaining} dias (${calStatus.targetDateText})`}
+                                    >
+                                        {calStatus.daysRemaining}d
+                                    </span>
+                                )}
+                                <input
+                                    type="date"
+                                    className={`grid-date-input flex-1 h-full bg-transparent text-center text-xs font-medium text-slate-700 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none px-1 ${!canEdit ? 'cursor-default' : ''}`}
+                                    value={service.nextCalibration || isoDate || ''}
+                                    onChange={(e) => onUpdate(service.id, 'nextCalibration', e.target.value)}
+                                    readOnly={!canEdit}
+                                    title={nextCalText}
+                                />
+                            </div>
+                        )}
                     </td>
 
                     <td className="px-2 py-1 border-b border-slate-100 text-center">
@@ -796,7 +837,11 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                     </td>
 
                     <td className="px-2 py-1 border-b border-slate-100 text-center overflow-hidden">
-                        <span className={`text-xs truncate ${forecastColor}`}>{forecastText}</span>
+                        {forecastText === '0' ? (
+                            <span className="text-xs font-bold text-slate-400">0</span>
+                        ) : (
+                            <span className={`text-xs truncate ${forecastColor}`}>{forecastText}</span>
+                        )}
                     </td>
 
                     {/* Comments Column */}

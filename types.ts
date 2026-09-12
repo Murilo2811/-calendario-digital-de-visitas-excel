@@ -55,6 +55,7 @@ export interface Service {
 
   // Calibration Logic
   lastCalibration?: string; // ISO Date YYYY-MM-DD
+  nextCalibration?: string; // ISO Date YYYY-MM-DD (data de próxima calibração definida manual ou calculada)
   period?: number; // Months
 
   // General Notes / Comments
@@ -62,6 +63,8 @@ export interface Service {
 
   // Status de Realização
   realized?: 'sim' | 'nao';
+  previousLastCalibration?: string; // Armazena a data de calibração anterior para reversão caso Realizado mude para Não
+  previousStatus?: ServiceStatus; // Armazena o status anterior para reversão caso Realizado mude para Não
 }
 
 export type ViewMode = 'grid' | 'timeline';

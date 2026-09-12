@@ -341,6 +341,7 @@ export const parseWorkbookData = (workbook: XLSX.WorkBook): {
           technicianIds: technicianIds.length > 0 ? technicianIds : [],
           status: parseStatus(String(row['Status'] || 'Cliente Previsto')),
           lastCalibration: parseExcelDate(row['Ultima Calibracao'] || row['LAST.CAL']),
+          nextCalibration: parseExcelDate(row['Proxima Calibracao'] || row['Proxima calibração'] || row['NEXT.CAL']),
           period: Number(row['Periodo'] || row['PERIOD'] || 0),
           comments: String(row['Comentários'] || row['Comentarios'] || row['Observacoes'] || row['Observações'] || row['Comments'] || ''),
           realized: (() => {
@@ -457,9 +458,10 @@ export const buildWorkbook = (
     'Realizado': s.realized === 'sim' ? 'Sim' : 'Não',
     'Status': s.status,
     'Ultima Calibracao': s.lastCalibration || '',
+    'Proxima Calibracao': s.realized === 'sim' ? (s.nextCalibration || '') : '0',
     'Periodo': s.period || 0,
     'Comentários': s.comments || '',
-  })), SHEET_SERVICES, [20, 8, 25, 12, 15, 25, 6, 6, 6, 12, 12, 20, 12, 22, 15, 8, 35]);
+  })), SHEET_SERVICES, [20, 8, 25, 12, 15, 25, 6, 6, 6, 12, 12, 20, 12, 22, 15, 15, 8, 35]);
 
   appendSheet(technicians.map(t => ({
     'ID': t.id,

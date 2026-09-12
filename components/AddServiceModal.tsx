@@ -55,9 +55,12 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
           startDate: serviceToEdit.startDate,
           endDate: serviceToEdit.endDate,
           lastCalibration: serviceToEdit.lastCalibration || '',
+          nextCalibration: serviceToEdit.nextCalibration || '',
           technicianIds: serviceToEdit.technicianIds || [],
           comments: serviceToEdit.comments || '',
-          realized: serviceToEdit.realized || 'nao'
+          realized: serviceToEdit.realized || 'nao',
+          previousLastCalibration: serviceToEdit.previousLastCalibration,
+          previousStatus: serviceToEdit.previousStatus
         });
       } else {
         // Pre-select first tech if none
@@ -84,6 +87,67 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
 
   const handleChange = (field: keyof Service, value: any) => {
     if (!canEdit) return;
+
+    if (field === 'realized') {
+      if (value === 'sim') {
+        if (!formData.endDate) {
+          alert('A coluna Fim precisa estar preenchida para marcar como Realizado.');
+          return;
+        }
+        setFormData(prev => ({
+          ...prev,
+          realized: 'sim',
+          previousLastCalibration: prev.lastCalibration || '',
+          lastCalibration: prev.endDate || '',
+          previousStatus: prev.status,
+          status: ServiceStatus.PREDICTED
+        }));
+        return;
+      } else if (value === 'nao') {
+        setFormData(prev => ({
+          ...prev,
+          realized: 'nao',
+          lastCalibration: prev.previousLastCalibration !== undefined ? prev.previousLastCalibration : prev.lastCalibration,
+          status: prev.previousStatus !== undefined ? prev.previousStatus : prev.status
+        }));
+        return;
+      }
+    }
+
+    if (field === 'nextCalibration') {
+      setFormData(prev => ({
+        ...prev,
+        nextCalibration: value,
+        ...(prev.realized === 'sim' ? { status: ServiceStatus.PREDICTED } : {})
+      }));
+      return;
+    }
+
+    if (field === 'startDate') {
+      setFormData(prev => {
+        if (prev.realized === 'sim' && value !== prev.startDate) {
+          return {
+            ...prev,
+            startDate: value,
+            realized: 'nao',
+            lastCalibration: prev.previousLastCalibration !== undefined ? prev.previousLastCalibration : prev.lastCalibration,
+            status: prev.previousStatus !== undefined ? prev.previousStatus : prev.status,
+          };
+        }
+        return { ...prev, startDate: value };
+      });
+      return;
+    }
+
+    if (field === 'endDate') {
+      setFormData(prev => ({
+        ...prev,
+        endDate: value,
+        ...(prev.realized === 'sim' && value ? { lastCalibration: value, status: ServiceStatus.PREDICTED } : {})
+      }));
+      return;
+    }
+
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -193,6 +257,50 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                     className={inputClass}
                     value={formData.endDate}
                     onChange={e => handleChange('endDate', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className={labelClass}>ÚLTIMA CALIBRAÇÃO</label>
+                  <input
+                    type="date"
+                    disabled={!canEdit}
+                    className={inputClass}
+                    value={formData.lastCalibration || ''}
+                    onChange={e => handleChange('lastCalibration', e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>PRÓXIMA CALIBRAÇÃO</label>
+                  {formData.realized !== 'sim' ? (
+                    <input
+                      type="text"
+                      disabled
+                      className={`${inputClass} text-center font-bold text-slate-400 bg-slate-100 cursor-not-allowed`}
+                      value="0"
+                      title="Próxima calibração é 0 quando Realizado é Não"
+                    />
+                  ) : (
+                    <input
+                      type="date"
+                      disabled={!canEdit}
+                      className={inputClass}
+                      value={formData.nextCalibration || ''}
+                      onChange={e => handleChange('nextCalibration', e.target.value)}
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className={labelClass}>PERÍODO (MESES)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    disabled={!canEdit}
+                    className={inputClass}
+                    value={formData.period ?? 0}
+                    onChange={e => handleChange('period', Number(e.target.value))}
                   />
                 </div>
               </div>
@@ -380,7 +488,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                     </span>
                   ) : null}
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div>
                     <label className={labelClass}>Última Calibração</label>
                     <input
@@ -390,6 +498,26 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                       value={formData.lastCalibration || ''}
                       onChange={e => handleChange('lastCalibration', e.target.value)}
                     />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Próxima Calibração</label>
+                    {formData.realized !== 'sim' ? (
+                      <input
+                        type="text"
+                        disabled
+                        className="w-full bg-slate-100 border border-amber-200 rounded-lg px-3 py-2 text-sm text-center font-bold text-slate-400 cursor-not-allowed outline-none"
+                        value="0"
+                        title="Próxima calibração é 0 quando Realizado é Não"
+                      />
+                    ) : (
+                      <input
+                        type="date"
+                        readOnly={!canEdit}
+                        className={`w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
+                        value={formData.nextCalibration || ''}
+                        onChange={e => handleChange('nextCalibration', e.target.value)}
+                      />
+                    )}
                   </div>
                   <div>
                     <label className={labelClass}>Período de Recorrência (Meses)</label>

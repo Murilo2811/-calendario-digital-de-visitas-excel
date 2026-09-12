@@ -516,6 +516,14 @@ const App: React.FC = () => {
             }
         }
 
+        // Sincronização de Realizado com Últ. Cal. e Status
+        if (newServiceData.realized === 'sim') {
+            if (newServiceData.endDate) {
+                newServiceData.lastCalibration = newServiceData.endDate;
+            }
+            newServiceData.status = ServiceStatus.PREDICTED;
+        }
+
         let recurringForecasts: Service[] = [];
 
         // Se possuir periodicidade de calibração definida (> 0), gera os agendamentos recorrentes automáticos (até 36 meses)
@@ -603,13 +611,22 @@ const App: React.FC = () => {
             technicianIds: technicians[0] ? [technicians[0].id] : [],
             status: ServiceStatus.PREDICTED,
             period: 6,
-            lastCalibration: ''
+            lastCalibration: '',
+            realized: 'nao'
         };
 
         handleSaveService(newService);
     };
 
     const updateService = (id: string, field: keyof Service, value: any) => {
+        if (field === 'realized' && value === 'sim') {
+            const current = services.find(s => s.id === id);
+            if (!current?.endDate) {
+                showToast('A coluna Fim precisa estar preenchida para marcar como Realizado.');
+                return;
+            }
+        }
+
         setServices(prev => prev.map(s => {
             if (s.id !== id) return s;
 
@@ -646,6 +663,53 @@ const App: React.FC = () => {
                 }
             } catch (e) {
                 return s; // Revert if date parsing fails
+            }
+
+            // Realizado = Sim: sincroniza Últ. Cal. com a coluna Fim e altera Status para 'Cliente Previsto'
+            if (field === 'realized') {
+                if (value === 'sim') {
+                    updatedService.previousLastCalibration = s.lastCalibration || '';
+                    updatedService.lastCalibration = s.endDate;
+                    updatedService.previousStatus = s.status;
+                    updatedService.status = ServiceStatus.PREDICTED;
+                } else if (value === 'nao') {
+                    if (s.previousLastCalibration !== undefined) {
+                        updatedService.lastCalibration = s.previousLastCalibration;
+                    }
+                    if (s.previousStatus !== undefined) {
+                        updatedService.status = s.previousStatus;
+                    }
+                }
+            }
+
+            // Se alterar a data de Início e Realizado estiver como 'sim', reverte Realizado para 'nao',
+            // restaurando Últ. Calibração e Status anteriores
+            if (field === 'startDate' && s.realized === 'sim' && value !== s.startDate) {
+                updatedService.realized = 'nao';
+                if (s.previousLastCalibration !== undefined) {
+                    updatedService.lastCalibration = s.previousLastCalibration;
+                }
+                if (s.previousStatus !== undefined) {
+                    updatedService.status = s.previousStatus;
+                }
+            }
+
+            // Se alterar a data de Fim e Realizado estiver como 'sim', atualiza também Últ. Cal. e Status
+            if (field === 'endDate' && updatedService.realized === 'sim' && updatedService.endDate) {
+                updatedService.lastCalibration = updatedService.endDate;
+                updatedService.status = ServiceStatus.PREDICTED;
+            }
+
+            // Se alterar a data de Próxima Calibração e Realizado estiver como 'sim', define Status como 'Cliente Previsto'
+            if (field === 'nextCalibration') {
+                if (updatedService.realized === 'sim') {
+                    updatedService.status = ServiceStatus.PREDICTED;
+                }
+            }
+
+            // Se alterar o período e Realizado estiver como 'sim', mantém/define Status como 'Cliente Previsto'
+            if (field === 'period' && updatedService.realized === 'sim') {
+                updatedService.status = ServiceStatus.PREDICTED;
             }
 
             // Logic: If confirmed and end date is in the past, sync lastCalibration
