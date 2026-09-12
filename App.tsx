@@ -77,7 +77,9 @@ import {
     Bell,
     AlertTriangle,
     Save,
-    Check
+    Check,
+    Undo2,
+    Redo2
 } from 'lucide-react';
 
 // Helper to sort technicians: Internal first, then Alphabetical by Name
@@ -146,6 +148,67 @@ const App: React.FC = () => {
             setToast(prev => ({ ...prev, show: false }));
         }, 3000);
     }, []);
+
+    // --- Sistema de Histórico (Undo / Redo) ---
+    interface HistorySnapshot {
+        services: Service[];
+        technicians: Technician[];
+        clients: Client[];
+    }
+
+    const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
+    const [redoStack, setRedoStack] = useState<HistorySnapshot[]>([]);
+
+    const recordSnapshot = useCallback(() => {
+        setUndoStack(prev => {
+            const next = [...prev, { services, technicians, clients }];
+            if (next.length > 50) return next.slice(next.length - 50);
+            return next;
+        });
+        setRedoStack([]);
+    }, [services, technicians, clients]);
+
+    const handleUndo = useCallback(() => {
+        setUndoStack(prevUndo => {
+            if (prevUndo.length === 0) return prevUndo;
+            const lastSnapshot = prevUndo[prevUndo.length - 1];
+            const nextUndo = prevUndo.slice(0, prevUndo.length - 1);
+
+            setRedoStack(prevRedo => {
+                const next = [...prevRedo, { services, technicians, clients }];
+                if (next.length > 50) return next.slice(next.length - 50);
+                return next;
+            });
+
+            setServices(lastSnapshot.services);
+            setTechnicians(lastSnapshot.technicians);
+            setClients(lastSnapshot.clients);
+
+            showToast('Ação desfeita (Undo)');
+            return nextUndo;
+        });
+    }, [services, technicians, clients, showToast]);
+
+    const handleRedo = useCallback(() => {
+        setRedoStack(prevRedo => {
+            if (prevRedo.length === 0) return prevRedo;
+            const nextSnapshot = prevRedo[prevRedo.length - 1];
+            const nextRedo = prevRedo.slice(0, prevRedo.length - 1);
+
+            setUndoStack(prevUndo => {
+                const next = [...prevUndo, { services, technicians, clients }];
+                if (next.length > 50) return next.slice(next.length - 50);
+                return next;
+            });
+
+            setServices(nextSnapshot.services);
+            setTechnicians(nextSnapshot.technicians);
+            setClients(nextSnapshot.clients);
+
+            showToast('Ação refeita (Redo)');
+            return nextRedo;
+        });
+    }, [services, technicians, clients, showToast]);
 
     const legendItems = Object.entries(STATUS_STYLE).map(([label, { bg }]) => ({ color: bg, label }));
 
@@ -218,6 +281,8 @@ const App: React.FC = () => {
                         setExcelFileName(data.fileName || 'Calendario_Digital_Base.xlsx');
                         setIsExcelConnected(true);
                         setLoadCount(n => n + 1);
+                        setUndoStack([]);
+                        setRedoStack([]);
                         showToast('Conectado à planilha central da rede!');
                     } else {
                         // Se o arquivo ainda não existe na rede, cria a planilha inicial automaticamente
@@ -227,6 +292,8 @@ const App: React.FC = () => {
                         setExcelFileName('Calendario_Digital_Base.xlsx');
                         setIsExcelConnected(true);
                         setLoadCount(n => n + 1);
+                        setUndoStack([]);
+                        setRedoStack([]);
                         showToast('Planilha central criada na rede!');
                     }
                     setIsExcelLoading(false);
@@ -288,6 +355,8 @@ const App: React.FC = () => {
                 setExcelFileName(handle.name);
                 setIsExcelConnected(true);
                 setLoadCount(n => n + 1);
+                setUndoStack([]);
+                setRedoStack([]);
 
                 // Salvar nome do arquivo nas configurações
                 setAppSettings(prev => ({ ...prev, lastExcelFileName: handle.name }));
@@ -323,6 +392,8 @@ const App: React.FC = () => {
                 setExcelFileName(handle.name);
                 setIsExcelConnected(true);
                 setLoadCount(n => n + 1);
+                setUndoStack([]);
+                setRedoStack([]);
                 showToast(`Novo arquivo criado: ${handle.name}`);
             }
         } catch (error) {
@@ -337,6 +408,8 @@ const App: React.FC = () => {
         setExcelHandle(null);
         setExcelFileName('');
         setIsExcelConnected(false);
+        setUndoStack([]);
+        setRedoStack([]);
         markSaved();
         showToast('Desconectado do arquivo Excel');
         setCurrentUser(null); // Logout ao desconectar
@@ -378,17 +451,43 @@ const App: React.FC = () => {
         }
     };
 
-    // Atalho de Teclado global: Ctrl+S ou Cmd+S para salvar
+    // Atalhos de Teclado globais: Ctrl+S para salvar, Ctrl+Z para desfazer, Ctrl+Y / Ctrl+Shift+Z para refazer
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
+            const activeEl = document.activeElement;
+            const isEditingText = activeEl && (
+                activeEl.tagName === 'INPUT' ||
+                activeEl.tagName === 'TEXTAREA' ||
+                (activeEl as HTMLElement).isContentEditable
+            );
+
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
                 e.preventDefault();
                 handleManualSave();
+                return;
+            }
+
+            // Não intercepta atalhos de histórico se o usuário estiver digitando em campos de texto nativos
+            if (isEditingText) {
+                return;
+            }
+
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                if (e.shiftKey) {
+                    e.preventDefault();
+                    handleRedo();
+                } else {
+                    e.preventDefault();
+                    handleUndo();
+                }
+            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+                e.preventDefault();
+                handleRedo();
             }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [handleManualSave]);
+    }, [handleManualSave, handleUndo, handleRedo]);
 
     // Alerta caso tente fechar ou recarregar a janela com alterações não salvas
     useEffect(() => {
@@ -499,6 +598,7 @@ const App: React.FC = () => {
 
     // --- CRUD Operations ---
     const handleSaveService = (serviceData: Omit<Service, 'id'>) => {
+        recordSnapshot();
         const newServiceData = { ...serviceData };
 
         // Sempre auto-recalcula a semana a partir da startDate se válida
@@ -627,6 +727,8 @@ const App: React.FC = () => {
             }
         }
 
+        recordSnapshot();
+
         setServices(prev => prev.map(s => {
             if (s.id !== id) return s;
 
@@ -730,12 +832,14 @@ const App: React.FC = () => {
     };
 
     const deleteService = (id: string) => {
+        recordSnapshot();
         setServices(prev => prev.filter(s => s.id !== id));
         showToast('Atividade removida.');
     };
 
     const handleBatchStatusUpdate = (ids: string[], newStatus: ServiceStatus) => {
         if (ids.length === 0) return;
+        recordSnapshot();
         const targetIds = new Set(ids);
         const today = startOfDay(new Date());
 
@@ -760,6 +864,7 @@ const App: React.FC = () => {
         const confirmDelete = window.confirm(`Tem certeza que deseja excluir ${ids.length} atividade(s) selecionada(s)?`);
         if (!confirmDelete) return;
 
+        recordSnapshot();
         const targetIds = new Set(ids);
         setServices(prev => prev.filter(s => !targetIds.has(s.id)));
         showToast(`${ids.length} atividade(s) removida(s).`);
@@ -846,6 +951,7 @@ const App: React.FC = () => {
                 newTechs.push(targetTechId);
             }
 
+            recordSnapshot();
             setServices(prev => {
                 const updatedMoved = prev.map(s => {
                     if (s.id !== id) return s;
@@ -914,6 +1020,7 @@ const App: React.FC = () => {
             }
         }
 
+        recordSnapshot();
         setServices(prev => prev.map(s => {
             if (s.id !== id) return s;
 
@@ -948,6 +1055,7 @@ const App: React.FC = () => {
     };
 
     const handleAddTechnician = (tech: Technician) => {
+        recordSnapshot();
         setTechnicians(prev => sortTechnicians([...prev, tech]));
     };
 
@@ -958,20 +1066,24 @@ const App: React.FC = () => {
             return;
         }
         if (confirm('Confirmar exclusão do técnico?')) {
+            recordSnapshot();
             setTechnicians(prev => prev.filter(t => t.id !== id));
         }
     };
 
     const handleAddClient = (clientData: Omit<Client, 'id'>) => {
+        recordSnapshot();
         setClients(prev => [...prev, { id: `cli-${Date.now()}`, ...clientData }]);
     };
 
     const handleUpdateClient = (id: string, updatedData: Partial<Client>) => {
+        recordSnapshot();
         setClients(prev => prev.map(c => c.id === id ? { ...c, ...updatedData } : c));
     };
 
     const handleDeleteClient = (id: string) => {
         if (confirm('Remover este cliente da lista?')) {
+            recordSnapshot();
             setClients(prev => prev.filter(c => c.id !== id));
         }
     };
@@ -1294,6 +1406,38 @@ const App: React.FC = () => {
                                     </button>
                                 </div>
                             )}
+
+                            {/* Botões Desfazer / Refazer (Undo / Redo) */}
+                            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                                <button
+                                    onClick={handleUndo}
+                                    disabled={undoStack.length === 0}
+                                    title={undoStack.length > 0 ? `Desfazer última alteração (Ctrl+Z) [${undoStack.length} ação(ões)]` : 'Nada para desfazer (Ctrl+Z)'}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all disabled:opacity-35 disabled:cursor-not-allowed hover:bg-white text-slate-700 hover:text-slate-900 active:scale-95"
+                                >
+                                    <Undo2 size={15} />
+                                    <span className="hidden lg:inline">Desfazer</span>
+                                    {undoStack.length > 0 && (
+                                        <span className="text-[10px] bg-slate-200 text-slate-700 px-1 rounded-full font-bold">
+                                            {undoStack.length}
+                                        </span>
+                                    )}
+                                </button>
+                                <button
+                                    onClick={handleRedo}
+                                    disabled={redoStack.length === 0}
+                                    title={redoStack.length > 0 ? `Refazer alteração (Ctrl+Y ou Ctrl+Shift+Z) [${redoStack.length} ação(ões)]` : 'Nada para refazer (Ctrl+Y)'}
+                                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-md transition-all disabled:opacity-35 disabled:cursor-not-allowed hover:bg-white text-slate-700 hover:text-slate-900 active:scale-95"
+                                >
+                                    <Redo2 size={15} />
+                                    <span className="hidden lg:inline">Refazer</span>
+                                    {redoStack.length > 0 && (
+                                        <span className="text-[10px] bg-slate-200 text-slate-700 px-1 rounded-full font-bold">
+                                            {redoStack.length}
+                                        </span>
+                                    )}
+                                </button>
+                            </div>
 
                             {/* Botão Salvar com Indicador de Alterações */}
                             <button
