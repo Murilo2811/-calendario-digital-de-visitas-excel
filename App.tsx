@@ -398,7 +398,7 @@ const App: React.FC = () => {
 
     // --- Date Logic ---
     const availableYears = useMemo(() => {
-        const yearsSet = new Set<number>([2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030]);
+        const yearsSet = new Set<number>([2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030, selectedYear]);
         services.forEach(s => {
             const raw = (s.startDate || s.endDate || '').trim();
             if (raw) {
@@ -409,27 +409,26 @@ const App: React.FC = () => {
             }
         });
         return Array.from(yearsSet).sort((a, b) => a - b);
-    }, [services]);
+    }, [services, selectedYear]);
 
-    // Se a planilha carregar serviços e o ano selecionado não tiver nenhuma atividade,
-    // ajusta automaticamente para o ano com serviços mais recente (evita tela em branco na carga)
+    // Ajusta o ano inicial apenas UMA vez ao abrir o app caso o ano corrente não possua atividades
+    const initialYearAdjustedRef = useRef(false);
     useEffect(() => {
-        if (services.length > 0) {
-            const hasServicesInYear = services.some(s => {
-                const raw = (s.startDate || s.endDate || '').trim();
-                return raw.startsWith(String(selectedYear));
-            });
-            if (!hasServicesInYear) {
+        if (!initialYearAdjustedRef.current && services.length > 0) {
+            initialYearAdjustedRef.current = true;
+            const currentYear = new Date().getFullYear();
+            const hasCurrentYear = services.some(s => (s.startDate || s.endDate || '').startsWith(String(currentYear)));
+            if (!hasCurrentYear) {
                 const serviceYears = services
                     .map(s => parseInt((s.startDate || s.endDate || '').substring(0, 4), 10))
                     .filter(y => !isNaN(y) && y >= 2000 && y <= 2100);
                 if (serviceYears.length > 0) {
-                    const mostRecentYear = Math.max(...serviceYears);
-                    setSelectedYear(mostRecentYear);
+                    setSelectedYear(Math.max(...serviceYears));
                 }
             }
         }
-    }, [services, selectedYear]);
+    }, [services]);
+
 
     const { rangeStart, rangeEnd } = useMemo(() => {
         let start: Date;
