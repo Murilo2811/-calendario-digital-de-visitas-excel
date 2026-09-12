@@ -343,6 +343,10 @@ export const parseWorkbookData = (workbook: XLSX.WorkBook): {
           lastCalibration: parseExcelDate(row['Ultima Calibracao'] || row['LAST.CAL']),
           period: Number(row['Periodo'] || row['PERIOD'] || 0),
           comments: String(row['Comentários'] || row['Comentarios'] || row['Observacoes'] || row['Observações'] || row['Comments'] || ''),
+          realized: (() => {
+            const raw = String(row['Realizado'] || row['REALIZADO'] || row['Status Realizado'] || '').trim().toLowerCase();
+            return (raw === 'sim' || raw === 's' || raw === 'true' || raw === '1' || raw === 'yes') ? 'sim' : 'nao';
+          })(),
         };
       })
     : [];
@@ -450,11 +454,12 @@ export const buildWorkbook = (
       .map(id => technicians.find(t => t.id === id)?.name || '')
       .filter(Boolean)
       .join(', '),
+    'Realizado': s.realized === 'sim' ? 'Sim' : 'Não',
     'Status': s.status,
     'Ultima Calibracao': s.lastCalibration || '',
     'Periodo': s.period || 0,
     'Comentários': s.comments || '',
-  })), SHEET_SERVICES, [20, 8, 25, 12, 15, 25, 6, 6, 6, 12, 12, 20, 22, 15, 8, 35]);
+  })), SHEET_SERVICES, [20, 8, 25, 12, 15, 25, 6, 6, 6, 12, 12, 20, 12, 22, 15, 8, 35]);
 
   appendSheet(technicians.map(t => ({
     'ID': t.id,

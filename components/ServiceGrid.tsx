@@ -131,6 +131,8 @@ const cellValue = (s: Service, key: string, techs: Technician[]): string => {
                 .map(id => techs.find(t => t.id === id)?.name || '')
                 .filter(Boolean)
                 .join(', ');
+        case 'realized':
+            return s.realized === 'sim' ? 'Sim' : 'Não';
         case 'lastCalibration': return s.lastCalibration || '';
         case 'period': return String(s.period ?? 0);
         case 'nextCal': return calculateCalibration(s.startDate, s.lastCalibration, s.period).nextCalText;
@@ -721,6 +723,24 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                         />
                     </td>
 
+                    {/* Realizado Column */}
+                    <td className="p-1 border-b border-slate-100 text-center w-24 min-w-[90px]">
+                        <select
+                            disabled={!canEdit}
+                            value={service.realized === 'sim' ? 'sim' : 'nao'}
+                            onChange={(e) => onUpdate(service.id, 'realized', e.target.value as 'sim' | 'nao')}
+                            className={`w-full text-xs font-bold py-1 px-1.5 rounded-md border text-center transition-all outline-none cursor-pointer ${
+                                service.realized === 'sim'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 focus:ring-1 focus:ring-emerald-400'
+                                    : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200 focus:ring-1 focus:ring-slate-400'
+                            } ${!canEdit ? 'cursor-default opacity-80' : ''}`}
+                            title="Indica se a atividade foi realizada (Sim / Não)"
+                        >
+                            <option value="sim" className="bg-white text-emerald-700 font-bold">Sim</option>
+                            <option value="nao" className="bg-white text-slate-700 font-medium">Não</option>
+                        </select>
+                    </td>
+
                     <td className="p-0 border-b border-slate-100 relative h-10 w-32 min-w-[125px]">
                         <input
                             type="date"
@@ -861,6 +881,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                                 { key: 'startDate', label: 'Início', cls: 'w-32 min-w-[125px]', align: 'center' as const, popoverAlign: 'left' as const },
                                 { key: 'endDate', label: 'Fim', cls: 'w-32 min-w-[125px]', align: 'center' as const, popoverAlign: 'left' as const },
                                 { key: 'technicianIds', label: 'Exec.', cls: 'w-28 min-w-[100px]', align: 'center' as const, popoverAlign: 'left' as const },
+                                { key: 'realized', label: 'Realizado', cls: 'w-24 min-w-[90px]', align: 'center' as const, popoverAlign: 'left' as const },
                                 { key: 'lastCalibration', label: 'Últ. Cal.', cls: 'w-32 min-w-[125px]', align: 'center' as const, popoverAlign: 'left' as const },
                                 { key: 'period', label: 'Período', cls: 'w-20 min-w-[70px]', align: 'center' as const, popoverAlign: 'left' as const },
                                 { key: 'nextCal', label: 'Próx. Calibração', cls: 'w-36 min-w-[145px]', align: 'center' as const, popoverAlign: 'right' as const },

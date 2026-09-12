@@ -41,7 +41,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
     status: ServiceStatus.PREDICTED,
     period: 6,
     lastCalibration: '',
-    comments: ''
+    comments: '',
+    realized: 'nao' as 'sim' | 'nao'
   });
 
   const [formData, setFormData] = useState<Partial<Service>>(getInitialFormData());
@@ -55,7 +56,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
           endDate: serviceToEdit.endDate,
           lastCalibration: serviceToEdit.lastCalibration || '',
           technicianIds: serviceToEdit.technicianIds || [],
-          comments: serviceToEdit.comments || ''
+          comments: serviceToEdit.comments || '',
+          realized: serviceToEdit.realized || 'nao'
         });
       } else {
         // Pre-select first tech if none
@@ -142,18 +144,32 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                   ))}
                 </select>
               </div>
-              <div>
-                <label className={labelClass}>STATUS</label>
-                <select
-                  className={inputClass}
-                  disabled={!canEdit}
-                  value={formData.status}
-                  onChange={e => handleChange('status', e.target.value as ServiceStatus)}
-                >
-                  {Object.values(ServiceStatus).map(s => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>STATUS</label>
+                  <select
+                    className={inputClass}
+                    disabled={!canEdit}
+                    value={formData.status}
+                    onChange={e => handleChange('status', e.target.value as ServiceStatus)}
+                  >
+                    {Object.values(ServiceStatus).map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>REALIZADO</label>
+                  <select
+                    className={inputClass}
+                    disabled={!canEdit}
+                    value={formData.realized || 'nao'}
+                    onChange={e => handleChange('realized', e.target.value as 'sim' | 'nao')}
+                  >
+                    <option value="nao">Não</option>
+                    <option value="sim">Sim</option>
+                  </select>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -221,7 +237,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
           ) : (
 
             <React.Fragment>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
                   <label className={labelClass}>CLIENTE *</label>
                   <select
@@ -248,6 +264,18 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                     {Object.values(ServiceStatus).map(s => (
                       <option key={s} value={s}>{s}</option>
                     ))}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>REALIZADO</label>
+                  <select
+                    className={inputClass}
+                    disabled={!canEdit}
+                    value={formData.realized || 'nao'}
+                    onChange={e => handleChange('realized', e.target.value as 'sim' | 'nao')}
+                  >
+                    <option value="nao">Não</option>
+                    <option value="sim">Sim</option>
                   </select>
                 </div>
               </div>

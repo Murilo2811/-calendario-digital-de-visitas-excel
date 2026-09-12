@@ -252,7 +252,8 @@ export const createRecurringCalibrationForecasts = (
       status: ServiceStatus.PREDICTED,
       period: baseService.period,
       lastCalibration: baseService.endDate || baseService.startDate,
-      comments: baseService.comments || ''
+      comments: baseService.comments || '',
+      realized: 'nao'
     });
 
     cycle++;
@@ -435,6 +436,7 @@ export const exportToExcel = (services: Service[], technicians: Technician[]) =>
       'Inicio': s.startDate,
       'Fim': s.endDate,
       'EXEC.': techNames || 'Unknown',
+      'REALIZADO': s.realized === 'sim' ? 'Sim' : 'Não',
       'LAST.CAL': s.lastCalibration || '',
       'PERIOD': s.period || 0,
       'Proxima calibração': nextCalText,
@@ -458,6 +460,7 @@ export const exportToExcel = (services: Service[], technicians: Technician[]) =>
     { wch: 12 }, // Inicio
     { wch: 12 }, // Fim
     { wch: 15 }, // EXEC (widened for multiple techs)
+    { wch: 12 }, // REALIZADO
     { wch: 12 }, // LAST.CAL
     { wch: 8 },  // PERIOD
     { wch: 18 }, // Prox Cal

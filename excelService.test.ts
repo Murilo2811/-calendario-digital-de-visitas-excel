@@ -28,6 +28,7 @@ const services: Service[] = [
     technicianIds: ['t1', 't2'], status: ServiceStatus.CONFIRMED,
     lastCalibration: '2025-07-05', period: 6,
     comments: 'Nota técnica de teste para calibração preventiva',
+    realized: 'sim',
   },
   {
     id: 's2', week: 10, client: 'Cliente A', manager: 'Gerente', os: '',
@@ -57,6 +58,8 @@ test('preserva as atividades, com datas, periodicidade e comentarios', () => {
   assert.equal(lido.services[0].lastCalibration, '2025-07-05');
   assert.equal(lido.services[0].comments, 'Nota técnica de teste para calibração preventiva');
   assert.equal(lido.services[1].comments, '');
+  assert.equal(lido.services[0].realized, 'sim');
+  assert.equal(lido.services[1].realized, 'nao');
 });
 
 test('reconstroi os tecnicos de cada atividade a partir das siglas', () => {

@@ -59,6 +59,9 @@ export interface Service {
 
   // General Notes / Comments
   comments?: string;
+
+  // Status de Realização
+  realized?: 'sim' | 'nao';
 }
 
 export type ViewMode = 'grid' | 'timeline';
