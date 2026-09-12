@@ -116,9 +116,9 @@ export interface CalibrationStatusInfo {
 export const getCalibrationStatus = (service: Service): CalibrationStatusInfo => {
   const today = startOfDay(new Date());
 
-  // Se já foi realizada e o status for confirmado ou não houver período futuro, não há pendência
+  // Se já foi realizada e não houver período futuro, não há pendência
   if (service.realized === 'sim') {
-    if (!service.period || service.period <= 0 || service.status === ServiceStatus.CONFIRMED) {
+    if (!service.period || service.period <= 0) {
       return {
         level: 'NONE',
         daysRemaining: null,

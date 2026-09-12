@@ -117,10 +117,16 @@ test('getCalibrationStatus: calcula data alvo a partir da coluna Inicio para sta
   assert.equal(status.isForecast, true);
 });
 
-test('getCalibrationStatus: cliente confirmado realizado nao exibe alerta de pendencia', () => {
-  const service = base({ startDate: '2025-01-01', endDate: '2025-01-05', period: 6, status: ServiceStatus.CONFIRMED, realized: 'sim' });
+test('getCalibrationStatus: cliente realizado sem periodicidade nao exibe alerta de pendencia', () => {
+  const service = base({ startDate: '2025-01-01', endDate: '2025-01-05', period: 0, status: ServiceStatus.CONFIRMED, realized: 'sim' });
   const status = getCalibrationStatus(service);
   assert.equal(status.level, 'NONE');
+});
+
+test('getCalibrationStatus: cliente confirmado realizado com proxima calibracao vencida exibe EXPIRED (VENC)', () => {
+  const service = base({ startDate: '2026-01-05', endDate: '2026-01-09', period: 6, status: ServiceStatus.CONFIRMED, realized: 'sim' });
+  const status = getCalibrationStatus(service);
+  assert.equal(status.level, 'EXPIRED', 'Próxima calibração de 05/07/2026 já passou de hoje e deve acusar VENC');
 });
 
 test('filterServicesByPeriod: filtra exclusivamente pela data de inicio (startDate)', () => {
