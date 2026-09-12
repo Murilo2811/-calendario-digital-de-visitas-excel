@@ -688,7 +688,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                     {/* Start Date Column */}
                     <td className="p-0 border-b border-slate-100 relative h-10 w-36 min-w-[135px]">
                         <div className="flex items-center justify-center gap-1 h-full px-1">
-                            {service.realized !== 'sim' && calStatus.level === 'EXPIRED' && (
+                            {calStatus.level === 'EXPIRED' && (
                                 <span
                                     className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded shadow-sm shrink-0"
                                     title={`Calibração Vencida (${calStatus.targetDateText})`}

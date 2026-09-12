@@ -116,53 +116,74 @@ export interface CalibrationStatusInfo {
 export const getCalibrationStatus = (service: Service): CalibrationStatusInfo => {
   const today = startOfDay(new Date());
 
-  // Se já foi realizada e não houver período futuro, não há pendência
-  if (service.realized === 'sim') {
-    if (!service.period || service.period <= 0) {
+  const endDateObj = service.endDate && isValid(parseISO(service.endDate))
+    ? startOfDay(parseISO(service.endDate))
+    : (service.startDate && isValid(parseISO(service.startDate)) ? startOfDay(parseISO(service.startDate)) : null);
+
+  const isEndDateInFutureOrToday = endDateObj ? endDateObj >= today : false;
+
+  // CASO 1: Atividade NÃO realizada (realized !== 'sim')
+  if (service.realized !== 'sim') {
+    // 1.1 Se a data de término da visita já passou -> VENCIDA!
+    if (endDateObj && !isEndDateInFutureOrToday) {
+      const diffDays = differenceInDays(endDateObj, today);
+      const targetDateText = format(endDateObj, 'dd/MM/yyyy', { locale: ptBR });
       return {
-        level: 'NONE',
-        daysRemaining: null,
-        targetDate: null,
-        targetDateText: '-',
+        level: 'EXPIRED',
+        daysRemaining: Math.abs(diffDays),
+        targetDate: endDateObj,
+        targetDateText,
         isForecast: false
       };
     }
+
+    // 1.2 Se a data de término da visita ainda NÃO venceu (hoje ou no futuro):
+    // Regra: "se a data de fim ainda nao venceu nao concidere como vencido"
+    if (endDateObj && isEndDateInFutureOrToday) {
+      const endDiffDays = differenceInDays(endDateObj, today);
+      // O badge 'Xd' só deve aparecer se o status for diferente de "Cliente Confirmado"
+      const isExpiringSoon = endDiffDays <= 30 && service.status !== ServiceStatus.CONFIRMED;
+      const targetDateText = format(endDateObj, 'dd/MM/yyyy', { locale: ptBR });
+      return {
+        level: isExpiringSoon ? 'EXPIRING_SOON' : 'OK',
+        daysRemaining: endDiffDays,
+        targetDate: endDateObj,
+        targetDateText,
+        isForecast: false
+      };
+    }
+
+    return {
+      level: 'NONE',
+      daysRemaining: null,
+      targetDate: null,
+      targetDateText: '-',
+      isForecast: false
+    };
   }
 
-  // Define a data alvo (targetDate):
-  // 1. Se tiver período de calibração (> 0), calcula a data de vencimento da calibração
-  // 2. Se não tiver período (period <= 0), a data alvo é a data de fim da visita (ou início)
+  // CASO 2: Atividade REALIZADA (realized === 'sim')
+  // Se não houver periodicidade (> 0), visita realizada está concluída sem pendência futura
+  if (!service.period || service.period <= 0) {
+    return {
+      level: 'NONE',
+      daysRemaining: null,
+      targetDate: null,
+      targetDateText: '-',
+      isForecast: false
+    };
+  }
+
+  // Com periodicidade, avalia o vencimento da PRÓXIMA calibração
   let targetDate: Date;
-  let isForecast = false;
-
-  if (service.period && service.period > 0) {
-    if (service.nextCalibration && isValid(parseISO(service.nextCalibration))) {
-      targetDate = startOfDay(parseISO(service.nextCalibration));
-    } else {
-      const baseDateStr = (service.startDate && isValid(parseISO(service.startDate)))
-        ? service.startDate
-        : (service.lastCalibration || service.endDate);
-
-      if (!baseDateStr || !isValid(parseISO(baseDateStr))) {
-        return {
-          level: 'NONE',
-          daysRemaining: null,
-          targetDate: null,
-          targetDateText: '-',
-          isForecast: false
-        };
-      }
-
-      targetDate = startOfDay(addMonths(parseISO(baseDateStr), service.period));
-      isForecast = true;
-    }
+  if (service.nextCalibration && isValid(parseISO(service.nextCalibration))) {
+    targetDate = startOfDay(parseISO(service.nextCalibration));
   } else {
-    // Sem período: referência é o fim da visita (ou início se fim não existir)
-    const refDateStr = (service.endDate && isValid(parseISO(service.endDate)))
-      ? service.endDate
-      : (service.startDate && isValid(parseISO(service.startDate)) ? service.startDate : '');
+    const baseDateStr = (service.startDate && isValid(parseISO(service.startDate)))
+      ? service.startDate
+      : (service.lastCalibration || service.endDate);
 
-    if (!refDateStr || !isValid(parseISO(refDateStr))) {
+    if (!baseDateStr || !isValid(parseISO(baseDateStr))) {
       return {
         level: 'NONE',
         daysRemaining: null,
@@ -172,54 +193,31 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
       };
     }
 
-    targetDate = startOfDay(parseISO(refDateStr));
-    isForecast = false;
+    targetDate = startOfDay(addMonths(parseISO(baseDateStr), service.period));
   }
 
   const diffDays = differenceInDays(targetDate, today);
   const targetDateText = format(targetDate, 'dd/MM/yyyy', { locale: ptBR });
 
-  // Regra: se a data de fim ainda não venceu, NÃO considere como vencido!
-  const endDateObj = service.endDate && isValid(parseISO(service.endDate))
-    ? startOfDay(parseISO(service.endDate))
-    : null;
-  const isEndDateInFutureOrToday = endDateObj ? endDateObj >= today : false;
-
-  // 1. Vencido: data alvo expirou E a data de fim da visita não está no futuro
+  // Se a data da próxima calibração expirou -> VENCIDA!
   if (diffDays < 0) {
-    if (isEndDateInFutureOrToday) {
-      // Data de fim ainda não venceu -> NÃO considera vencido!
-      // O badge 'Xd' só deve aparecer se o status for diferente de "Cliente Confirmado"
-      const endDiffDays = differenceInDays(endDateObj!, today);
-      const isExpiringSoon = endDiffDays <= 30 && service.status !== ServiceStatus.CONFIRMED;
-      return {
-        level: isExpiringSoon ? 'EXPIRING_SOON' : 'OK',
-        daysRemaining: endDiffDays,
-        targetDate,
-        targetDateText,
-        isForecast
-      };
-    }
-
     return {
       level: 'EXPIRED',
       daysRemaining: Math.abs(diffDays),
       targetDate,
       targetDateText,
-      isForecast
+      isForecast: true
     };
   }
 
-  // 2. Próximo do vencimento (até 30 dias para visitas sem período, ou até 60 dias para calibrações)
-  // O badge 'Xd' só deve aparecer se o status for diferente de "Cliente Confirmado"
-  const thresholdDays = (service.period && service.period > 0) ? 60 : 30;
-  if (diffDays <= thresholdDays && service.status !== ServiceStatus.CONFIRMED) {
+  // Próximo do vencimento da calibração (até 30 dias se status != Confirmado)
+  if (diffDays <= 30 && service.status !== ServiceStatus.CONFIRMED) {
     return {
       level: 'EXPIRING_SOON',
       daysRemaining: diffDays,
       targetDate,
       targetDateText,
-      isForecast
+      isForecast: true
     };
   }
 
@@ -228,7 +226,7 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
     daysRemaining: diffDays,
     targetDate,
     targetDateText,
-    isForecast
+    isForecast: true
   };
 };
 

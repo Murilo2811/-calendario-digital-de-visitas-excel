@@ -111,7 +111,7 @@ test('calculateCalibration: retorna *** se period for zero ou nao houver datas v
 });
 
 test('getCalibrationStatus: calcula data alvo a partir da coluna Inicio para status previsto', () => {
-  const service = base({ startDate: '2026-05-20', endDate: '2026-05-25', period: 6, lastCalibration: '2024-01-01', status: ServiceStatus.PREDICTED });
+  const service = base({ startDate: '2026-05-20', endDate: '2026-05-25', period: 6, lastCalibration: '2024-01-01', status: ServiceStatus.PREDICTED, realized: 'sim' });
   const status = getCalibrationStatus(service);
   assert.equal(status.targetDateText, '20/11/2026');
   assert.equal(status.isForecast, true);
@@ -127,6 +127,14 @@ test('getCalibrationStatus: cliente confirmado realizado com proxima calibracao 
   const service = base({ startDate: '2026-01-05', endDate: '2026-01-09', period: 6, status: ServiceStatus.CONFIRMED, realized: 'sim' });
   const status = getCalibrationStatus(service);
   assert.equal(status.level, 'EXPIRED', 'Próxima calibração de 05/07/2026 já passou de hoje e deve acusar VENC');
+});
+
+test('getCalibrationStatus: atividade nao realizada com data de fim vencida exibe EXPIRED mesmo com periodo de 12 ou 36 meses', () => {
+  const service36 = base({ startDate: '2026-01-06', endDate: '2026-01-10', period: 36, status: ServiceStatus.CONFIRMED, realized: 'nao' });
+  assert.equal(getCalibrationStatus(service36).level, 'EXPIRED', 'Visita de janeiro/2026 não realizada com período 36 deve acusar VENC');
+
+  const service12 = base({ startDate: '2026-01-19', endDate: '2026-01-23', period: 12, status: 'FÉRIAS / BLOQUEIO' as ServiceStatus, realized: 'nao' });
+  assert.equal(getCalibrationStatus(service12).level, 'EXPIRED', 'Visita de janeiro/2026 não realizada com período 12 deve acusar VENC');
 });
 
 test('filterServicesByPeriod: filtra exclusivamente pela data de inicio (startDate)', () => {
