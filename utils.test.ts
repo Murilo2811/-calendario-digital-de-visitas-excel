@@ -337,4 +337,46 @@ test('ao alterar a data de início em atividade realizada, Realizado reverte par
   assert.equal(forecast.forecastText, '0', 'Previsão deve ser 0');
 });
 
+test('o alerta "Xd" (EXPIRING_SOON) só aparece se status for diferente de "Cliente Confirmado"', () => {
+  // Data futura próxima (daqui a 10 dias)
+  const today = new Date();
+  const future10 = new Date(today);
+  future10.setDate(today.getDate() + 10);
+  const future10Str = future10.toISOString().split('T')[0];
+
+  // Cenário 1: Status = Cliente Confirmado -> NÃO deve gerar EXPIRING_SOON (nível OK)
+  const svcConfirmado: Service = base({
+    startDate: future10Str,
+    endDate: future10Str,
+    period: 0,
+    status: ServiceStatus.CONFIRMED,
+    realized: 'nao',
+  });
+  const statusConf = getCalibrationStatus(svcConfirmado);
+  assert.equal(statusConf.level, 'OK', 'Cliente Confirmado não deve receber o badge Xd');
+
+  // Cenário 2: Status = Cliente Previsto -> DEVE gerar EXPIRING_SOON (badge Xd)
+  const svcPrevisto: Service = base({
+    startDate: future10Str,
+    endDate: future10Str,
+    period: 0,
+    status: ServiceStatus.PREDICTED,
+    realized: 'nao',
+  });
+  const statusPrev = getCalibrationStatus(svcPrevisto);
+  assert.equal(statusPrev.level, 'EXPIRING_SOON', 'Cliente Previsto deve receber o badge Xd');
+
+  // Cenário 3: Se já venceu (endDate no passado), Cliente Confirmado CONTINUA recebendo EXPIRED (VENC)
+  const svcVencidoConf: Service = base({
+    startDate: '2020-01-01',
+    endDate: '2020-01-05',
+    period: 0,
+    status: ServiceStatus.CONFIRMED,
+    realized: 'nao',
+  });
+  const statusVenc = getCalibrationStatus(svcVencidoConf);
+  assert.equal(statusVenc.level, 'EXPIRED', 'Cliente Confirmado com data de fim vencida e não realizado deve receber VENC');
+});
+
+
 

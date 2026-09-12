@@ -189,9 +189,11 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
   if (diffDays < 0) {
     if (isEndDateInFutureOrToday) {
       // Data de fim ainda não venceu -> NÃO considera vencido!
+      // O badge 'Xd' só deve aparecer se o status for diferente de "Cliente Confirmado"
       const endDiffDays = differenceInDays(endDateObj!, today);
+      const isExpiringSoon = endDiffDays <= 30 && service.status !== ServiceStatus.CONFIRMED;
       return {
-        level: endDiffDays <= 30 ? 'EXPIRING_SOON' : 'OK',
+        level: isExpiringSoon ? 'EXPIRING_SOON' : 'OK',
         daysRemaining: endDiffDays,
         targetDate,
         targetDateText,
@@ -209,8 +211,9 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
   }
 
   // 2. Próximo do vencimento (até 30 dias para visitas sem período, ou até 60 dias para calibrações)
+  // O badge 'Xd' só deve aparecer se o status for diferente de "Cliente Confirmado"
   const thresholdDays = (service.period && service.period > 0) ? 60 : 30;
-  if (diffDays <= thresholdDays) {
+  if (diffDays <= thresholdDays && service.status !== ServiceStatus.CONFIRMED) {
     return {
       level: 'EXPIRING_SOON',
       daysRemaining: diffDays,
