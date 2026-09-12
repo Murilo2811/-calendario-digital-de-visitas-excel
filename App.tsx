@@ -69,7 +69,6 @@ import {
     Zap,
     CheckCircle,
     FileSpreadsheet,
-    Unplug,
     Loader2,
     FilePlus2,
     Settings,
@@ -1206,23 +1205,7 @@ const App: React.FC = () => {
                         {/* Action Buttons */}
                         <div className="flex items-center gap-1">
                             {/* Excel Connection Buttons */}
-                            {isExcelConnected ? (
-                                <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded-lg">
-                                    <div className="flex items-center gap-1.5">
-                                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                                        <span className="text-xs font-medium text-green-700 max-w-[120px] truncate" title={excelFileName}>
-                                            {excelFileName}
-                                        </span>
-                                    </div>
-                                    <button
-                                        onClick={handleDisconnectExcel}
-                                        className="p-1 text-green-600 hover:text-red-500 hover:bg-red-50 rounded transition-all"
-                                        title="Desconectar do Excel"
-                                    >
-                                        <Unplug size={14} />
-                                    </button>
-                                </div>
-                            ) : (
+                            {!isExcelConnected && (
                                 <div className="flex items-center gap-1">
                                     <button
                                         onClick={handleConnectExcel}
