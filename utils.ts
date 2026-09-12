@@ -251,7 +251,8 @@ export const createRecurringCalibrationForecasts = (
       technicianIds: chosenTechIds,
       status: ServiceStatus.PREDICTED,
       period: baseService.period,
-      lastCalibration: baseService.endDate || baseService.startDate
+      lastCalibration: baseService.endDate || baseService.startDate,
+      comments: baseService.comments || ''
     });
 
     cycle++;

@@ -182,12 +182,17 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
               </div>
 
               <div>
-                <label className={labelClass}>Comentários / Observações da Visita</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className={labelClass}>OBSERVAÇÕES E NOTAS TÉCNICAS</label>
+                  <span className="text-[10px] text-slate-400 font-normal">
+                    {(formData.comments || '').length} caractere(s)
+                  </span>
+                </div>
                 <textarea
-                  rows={3}
+                  rows={4}
                   readOnly={!canEdit}
-                  placeholder="Instruções técnicas, detalhes da calibração, contato do cliente, orientações para os técnicos..."
-                  className={`w-full bg-white border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red outline-none resize-y transition-all placeholder:text-slate-400 ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
+                  placeholder="Digite anotações, detalhes da calibração, contato do cliente, orientações para os técnicos..."
+                  className={`w-full bg-white border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red outline-none resize-y transition-all placeholder:text-slate-400 leading-relaxed ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
                   value={formData.comments || ''}
                   onChange={e => handleChange('comments', e.target.value)}
                 />
@@ -460,6 +465,23 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                     />
                   </div>
                 </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className={labelClass}>OBSERVAÇÕES E NOTAS TÉCNICAS</label>
+                  <span className="text-[10px] text-slate-400 font-normal">
+                    {(formData.comments || '').length} caractere(s)
+                  </span>
+                </div>
+                <textarea
+                  rows={3}
+                  readOnly={!canEdit}
+                  placeholder="Digite anotações, detalhes da calibração, contato do cliente, orientações para os técnicos..."
+                  className={`w-full bg-white border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red outline-none resize-y transition-all placeholder:text-slate-400 leading-relaxed ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
+                  value={formData.comments || ''}
+                  onChange={e => handleChange('comments', e.target.value)}
+                />
               </div>
             </React.Fragment>
           )}

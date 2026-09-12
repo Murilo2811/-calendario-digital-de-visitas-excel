@@ -57,6 +57,16 @@ test('datas invalidas nao geram projecao', () => {
   assert.equal(createRecurringCalibrationForecasts(base({ startDate: '' }), techs, []).length, 0);
 });
 
+test('preserva e herda os comentarios da visita base em cada projecao', () => {
+  const forecasts = createRecurringCalibrationForecasts(
+    base({ comments: 'Levar kit de calibração padrão e EPI para alta tensão' }),
+    techs,
+    []
+  );
+  assert.ok(forecasts.length > 0);
+  assert.ok(forecasts.every(f => f.comments === 'Levar kit de calibração padrão e EPI para alta tensão'));
+});
+
 test('checkPeriodExceeded: dentro do prazo', () => {
   // ultima calibracao 2026-01-10 + 6 meses = limite 2026-07-10
   const r = checkPeriodExceeded(base({ lastCalibration: '2026-01-10' }), '2026-07-01');
