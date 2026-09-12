@@ -11,6 +11,7 @@ import { HelpModal } from './components/HelpModal';
 import { LoginPage } from './components/LoginPage';
 import { SettingsModal } from './components/SettingsModal';
 import { CalibrationAlertsModal } from './components/CalibrationAlertsModal';
+import { UnsavedChangesModal } from './components/UnsavedChangesModal';
 import { createDefaultAdmin, canEdit, canManage, canExport } from './authService';
 import {
     calculateDuration,
@@ -101,6 +102,8 @@ const App: React.FC = () => {
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
     const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
     const [isCalibrationAlertsModalOpen, setIsCalibrationAlertsModalOpen] = useState(false);
+    const [isUnsavedExitModalOpen, setIsUnsavedExitModalOpen] = useState(false);
+    const [pendingExitAction, setPendingExitAction] = useState<'logout' | 'disconnect' | null>(null);
     const [editingService, setEditingService] = useState<Service | null>(null);
 
     const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
@@ -331,13 +334,7 @@ const App: React.FC = () => {
         }
     };
 
-    const handleDisconnectExcel = () => {
-        if (hasUnsavedChanges) {
-            const confirmLeave = window.confirm(
-                'Você possui alterações pendentes não salvas!\n\nDeseja realmente desconectar e descartar as alterações?'
-            );
-            if (!confirmLeave) return;
-        }
+    const executeDisconnectExcel = () => {
         setExcelHandle(null);
         setExcelFileName('');
         setIsExcelConnected(false);
@@ -345,6 +342,16 @@ const App: React.FC = () => {
         showToast('Desconectado do arquivo Excel');
         setCurrentUser(null); // Logout ao desconectar
     };
+
+    const handleDisconnectExcel = () => {
+        if (hasUnsavedChanges) {
+            setPendingExitAction('disconnect');
+            setIsUnsavedExitModalOpen(true);
+        } else {
+            executeDisconnectExcel();
+        }
+    };
+
 
     // --- Salvamento Manual Controlado ---
     const handleManualSave = async () => {
@@ -884,9 +891,65 @@ const App: React.FC = () => {
     };
 
     const handleLogout = () => {
-        setCurrentUser(null);
-        showToast('Você foi desconectado');
+        if (hasUnsavedChanges) {
+            setPendingExitAction('logout');
+            setIsUnsavedExitModalOpen(true);
+        } else {
+            setCurrentUser(null);
+            showToast('Você foi desconectado');
+        }
     };
+
+    const handleSaveAndExit = async () => {
+        if (isSaving) return;
+        setIsSaving(true);
+        try {
+            let ok = false;
+            if (isNetworkServer) {
+                ok = await saveToNetworkServer(services, technicians, clients, users);
+            } else if (excelHandle) {
+                await saveAllToExcel(excelHandle, services, technicians, clients, users);
+                ok = true;
+            } else {
+                showToast('Nenhum arquivo Excel conectado para salvar.');
+                setIsSaving(false);
+                return;
+            }
+
+            if (ok) {
+                markSaved();
+                setIsUnsavedExitModalOpen(false);
+                showToast('Alterações salvas com sucesso!');
+                if (pendingExitAction === 'disconnect') {
+                    executeDisconnectExcel();
+                } else {
+                    setCurrentUser(null);
+                    showToast('Você foi desconectado');
+                }
+            } else {
+                showToast('Erro ao salvar as alterações.');
+            }
+        } catch (error) {
+            console.error('Erro ao salvar antes de sair:', error);
+            showToast('Erro ao salvar alterações.');
+        } finally {
+            setIsSaving(false);
+            setPendingExitAction(null);
+        }
+    };
+
+    const handleExitWithoutSaving = () => {
+        markSaved();
+        setIsUnsavedExitModalOpen(false);
+        if (pendingExitAction === 'disconnect') {
+            executeDisconnectExcel();
+        } else {
+            setCurrentUser(null);
+            showToast('Você foi desconectado sem salvar as alterações');
+        }
+        setPendingExitAction(null);
+    };
+
 
     const handleAddUser = (user: User) => {
         setUsers(prev => [...prev, user]);
@@ -997,6 +1060,15 @@ const App: React.FC = () => {
                     setSelectedYear(date.getFullYear());
                     setSelectedMonth(date.getMonth());
                 }}
+            />
+
+            <UnsavedChangesModal
+                isOpen={isUnsavedExitModalOpen}
+                onClose={() => setIsUnsavedExitModalOpen(false)}
+                onSaveAndExit={handleSaveAndExit}
+                onExitWithoutSaving={handleExitWithoutSaving}
+                isSaving={isSaving}
+                actionType={pendingExitAction || 'logout'}
             />
 
             {/* --- HEADER & CONTROLS --- */}
