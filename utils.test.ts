@@ -392,5 +392,46 @@ test('o alerta "Xd" (EXPIRING_SOON) só aparece se status for diferente de "Clie
   assert.equal(statusVenc.level, 'EXPIRED', 'Cliente Confirmado com data de fim vencida e não realizado deve receber VENC');
 });
 
+test('recorrência: cadastro deve ter início e fim seguindo a premissa da coluna Previsão', () => {
+  const baseSvc = base({
+    startDate: '2026-03-10',
+    endDate: '2026-03-14',
+    period: 6,
+    realized: 'sim',
+  });
 
+  // Calcula a previsão oficial da coluna Previsão
+  const { nextCalText } = calculateCalibration(baseSvc.startDate, baseSvc.lastCalibration, baseSvc.period, undefined, baseSvc.realized);
+  const { forecastStartDate, forecastEndDate } = calculateServiceForecast(
+    baseSvc.startDate,
+    baseSvc.endDate,
+    baseSvc.period,
+    nextCalText,
+    baseSvc.realized
+  );
 
+  const forecasts = createRecurringCalibrationForecasts(baseSvc, techs, [], 36);
+
+  // Ciclo 1 deve bater exatamente com a coluna Previsão
+  const ciclo1 = forecasts[0];
+  assert.ok(forecastStartDate && forecastEndDate, 'Previsão deve calcular datas');
+  assert.equal(ciclo1.startDate, '2026-09-10', 'Início do 1º ciclo deve ser exatamente 6 meses após o início');
+  assert.equal(ciclo1.endDate, '2026-09-14', 'Fim do 1º ciclo deve ser exatamente 6 meses após o fim');
+  assert.equal(ciclo1.lastCalibration, '2026-03-14', 'Última calibração do 1º ciclo deve ser o fim da visita base');
+  assert.equal(ciclo1.status, ServiceStatus.PREDICTED);
+  assert.equal(ciclo1.realized, 'nao');
+  assert.equal(ciclo1.os, '');
+
+  // Ciclo 2 deve ter início e fim definidos avançando pelo período e encadeando a última calibração
+  const ciclo2 = forecasts[1];
+  assert.equal(ciclo2.startDate, '2027-03-10');
+  assert.equal(ciclo2.endDate, '2027-03-14');
+  assert.equal(ciclo2.lastCalibration, '2026-09-14', 'Última calibração do ciclo 2 é o fim do ciclo 1');
+
+  // Todos os ciclos gerados devem ter início, fim e semana válidos
+  for (const f of forecasts) {
+    assert.ok(f.startDate, 'Todo ciclo deve ter data de início');
+    assert.ok(f.endDate, 'Todo ciclo deve ter data de término');
+    assert.ok(f.week > 0, 'Todo ciclo deve ter número de semana calculado');
+  }
+});

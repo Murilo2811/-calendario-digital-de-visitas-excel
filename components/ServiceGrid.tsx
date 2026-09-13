@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Service, ServiceStatus, Technician, Client } from '../types';
 import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getClientConflicts, checkPeriodExceeded } from '../utils';
 import { STATUS_STYLE } from '../constants';
-import { Trash2, AlertCircle, Check, ChevronDown, MessageSquare, X, ArrowUp, ArrowDown, ListFilter, Filter } from 'lucide-react';
+import { Trash2, AlertCircle, Check, ChevronDown, MessageSquare, X, ArrowUp, ArrowDown, ListFilter, Filter, Repeat } from 'lucide-react';
 import { isFuture } from 'date-fns/isFuture';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
@@ -16,6 +16,7 @@ interface ServiceGridProps {
     onDelete: (id: string) => void;
     onBatchStatusUpdate?: (ids: string[], newStatus: ServiceStatus) => void;
     onBatchDelete?: (ids: string[]) => void;
+    onGenerateRecurrence?: (serviceId: string) => void;
     canEdit?: boolean;
 }
 
@@ -402,6 +403,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
     onDelete,
     onBatchStatusUpdate,
     onBatchDelete,
+    onGenerateRecurrence,
     canEdit = true
 }) => {
     const [activeCommentService, setActiveCommentService] = useState<{ id: string; client: string; os: string; comments: string } | null>(null);
@@ -780,12 +782,31 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                     </td>
 
                     {/* Period Column */}
-                    <td className="p-0 h-10 border-b border-slate-100 text-center w-20 min-w-[70px]">
-                        <PeriodCell
-                            value={service.period ?? 0}
-                            onChange={(val) => onUpdate(service.id, 'period', val)}
-                            disabled={!canEdit}
-                        />
+                    <td className="p-0 h-10 border-b border-slate-100 text-center w-24 min-w-[85px]">
+                        <div className="flex items-center h-full w-full">
+                            <div className="flex-1 h-full min-w-0">
+                                <PeriodCell
+                                    value={service.period ?? 0}
+                                    onChange={(val) => onUpdate(service.id, 'period', val)}
+                                    disabled={!canEdit}
+                                />
+                            </div>
+                            {canEdit && onGenerateRecurrence && (
+                                <button
+                                    type="button"
+                                    onClick={() => onGenerateRecurrence(service.id)}
+                                    disabled={!service.period || service.period <= 0}
+                                    title={
+                                        service.period && service.period > 0
+                                            ? `Gerar recorrência automática a cada ${service.period} meses (+36m)`
+                                            : 'Defina um período (> 0) para gerar recorrência'
+                                    }
+                                    className="p-1 mr-1 text-slate-400 hover:text-amber-600 disabled:opacity-20 disabled:hover:text-slate-400 disabled:cursor-not-allowed transition-colors rounded hover:bg-amber-50 cursor-pointer shrink-0"
+                                >
+                                    <Repeat size={13} />
+                                </button>
+                            )}
+                        </div>
                     </td>
 
                     <td className="p-0 border-b border-slate-100 relative h-10 w-36 min-w-[145px]">
@@ -928,7 +949,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                                 { key: 'technicianIds', label: 'Exec.', cls: 'w-28 min-w-[100px]', align: 'center' as const, popoverAlign: 'left' as const },
                                 { key: 'realized', label: 'Realizado', cls: 'w-24 min-w-[90px]', align: 'center' as const, popoverAlign: 'left' as const },
                                 { key: 'lastCalibration', label: 'Últ. Cal.', cls: 'w-32 min-w-[125px]', align: 'center' as const, popoverAlign: 'left' as const },
-                                { key: 'period', label: 'Período', cls: 'w-20 min-w-[70px]', align: 'center' as const, popoverAlign: 'left' as const },
+                                { key: 'period', label: 'Período', cls: 'w-24 min-w-[85px]', align: 'center' as const, popoverAlign: 'left' as const },
                                 { key: 'nextCal', label: 'Próx. Calibração', cls: 'w-36 min-w-[145px]', align: 'center' as const, popoverAlign: 'right' as const },
                                 { key: 'status', label: 'Status', cls: 'w-36 min-w-[140px]', align: 'center' as const, popoverAlign: 'right' as const },
                                 { key: 'forecast', label: 'Previsão', cls: 'w-44 min-w-[170px]', align: 'center' as const, popoverAlign: 'right' as const },

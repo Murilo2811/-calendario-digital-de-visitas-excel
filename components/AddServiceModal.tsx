@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from './Modal';
 import { Service, ServiceStatus, Technician, Client } from '../types';
-import { X, PlusCircle, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { X, PlusCircle, Pencil, Trash2, AlertTriangle, Repeat } from 'lucide-react';
 import { format } from 'date-fns/format';
 import { checkPeriodExceeded } from '../utils';
 
@@ -13,6 +13,7 @@ interface AddServiceModalProps {
   technicians: Technician[];
   clients: Client[];
   serviceToEdit?: Service | null;
+  onGenerateRecurrence?: (serviceId: string) => void;
   canEdit?: boolean;
 }
 
@@ -24,6 +25,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   technicians,
   clients,
   serviceToEdit,
+  onGenerateRecurrence,
   canEdit = true
 }) => {
   const getInitialFormData = () => ({
@@ -305,6 +307,27 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                 </div>
               </div>
 
+              {canEdit && onGenerateRecurrence && (
+                <div className="flex items-center justify-between p-3 bg-amber-50/70 border border-amber-200 rounded-lg">
+                  <div className="text-xs text-amber-900">
+                    <span className="font-bold">Recorrência periódica:</span> Projeta visitas como <span className="font-semibold text-yellow-700 bg-yellow-100 px-1 rounded">Cliente Previsto</span> até 36 meses.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onGenerateRecurrence(serviceToEdit.id);
+                      onClose();
+                    }}
+                    disabled={!formData.period || formData.period <= 0}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-900 bg-amber-200 hover:bg-amber-300 border border-amber-300 rounded-md shadow-2xs transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0"
+                    title={formData.period && formData.period > 0 ? "Gerar série de visitas futuras (+36m)" : "Defina um período (> 0) para gerar recorrência"}
+                  >
+                    <Repeat size={14} />
+                    Gerar Recorrência (+36m)
+                  </button>
+                </div>
+              )}
+
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className={labelClass}>OBSERVAÇÕES E NOTAS TÉCNICAS</label>
@@ -578,8 +601,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                       )}
                       <div className="flex items-start gap-2 text-xs text-amber-900 bg-amber-100/40 p-2.5 rounded-md">
                         <span className="text-amber-600 font-bold">💡</span>
-                        <div>
-                          <span className="font-semibold">Agendamentos futuros automáticos:</span> Ao salvar, o sistema projetará visitas como <span className="font-bold text-yellow-700 bg-yellow-100 px-1 py-0.5 rounded">Cliente Previsto</span> a cada <strong>{p} meses</strong> até o limite de <strong>36 meses</strong> (ex: {examples}).
+                        <div className="flex-1">
+                          <span className="font-semibold">Agendamentos futuros automáticos:</span> Ao salvar, o sistema projeta visitas como <span className="font-bold text-yellow-700 bg-yellow-100 px-1 py-0.5 rounded">Cliente Previsto</span> a cada <strong>{p} meses</strong> até o limite de <strong>36 meses</strong> (ex: {examples}).
                         </div>
                       </div>
                     </div>

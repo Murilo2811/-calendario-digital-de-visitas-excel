@@ -255,9 +255,12 @@ export const createRecurringCalibrationForecasts = (
   const duration = differenceInDays(end, start) + 1;
 
   let cycle = 1;
+  let previousCalDate = baseService.endDate || baseService.startDate;
+
   for (let months = period; months <= maxMonths; months += period) {
+    // Início e Fim seguem rigorosamente a premissa da coluna Previsão
     const cycleStart = addMonths(start, months);
-    const cycleEnd = addDays(cycleStart, duration - 1);
+    const cycleEnd = addMonths(end, months);
 
     const startDateStr = format(cycleStart, 'yyyy-MM-dd');
     const endDateStr = format(cycleEnd, 'yyyy-MM-dd');
@@ -287,11 +290,12 @@ export const createRecurringCalibrationForecasts = (
       technicianIds: chosenTechIds,
       status: ServiceStatus.PREDICTED,
       period: baseService.period,
-      lastCalibration: baseService.endDate || baseService.startDate,
+      lastCalibration: previousCalDate,
       comments: baseService.comments || '',
       realized: 'nao'
     });
 
+    previousCalDate = endDateStr;
     cycle++;
   }
 

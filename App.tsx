@@ -870,6 +870,42 @@ const App: React.FC = () => {
         showToast(`${ids.length} atividade(s) removida(s).`);
     };
 
+    const handleGenerateRecurrence = (serviceId: string) => {
+        const baseService = services.find(s => s.id === serviceId);
+        if (!baseService) {
+            showToast('Atividade não encontrada.');
+            return;
+        }
+
+        if (!baseService.period || baseService.period <= 0) {
+            showToast('Defina um período válido (> 0) para gerar recorrências.');
+            return;
+        }
+
+        if (!baseService.startDate || !baseService.endDate) {
+            showToast('A atividade precisa ter datas de Início e Fim válidas.');
+            return;
+        }
+
+        recordSnapshot();
+
+        const forecasts = createRecurringCalibrationForecasts(
+            baseService,
+            technicians,
+            services,
+            36
+        );
+
+        if (forecasts.length === 0) {
+            showToast('Nenhuma visita futura pôde ser gerada.');
+            return;
+        }
+
+        // Adiciona acumulando com os eventos existentes
+        setServices(prev => [...prev, ...forecasts]);
+        showToast(`${forecasts.length} evento(s) futuro(s) de calibração gerado(s) até 36m!`);
+    };
+
     const handleServiceMove = (id: string, newStartDate: string, newTechId: string, oldTechId: string) => {
         const serviceToMove = services.find(s => s.id === id);
         if (!serviceToMove) return;
@@ -1206,6 +1242,7 @@ const App: React.FC = () => {
                 technicians={technicians}
                 clients={clients}
                 serviceToEdit={editingService}
+                onGenerateRecurrence={handleGenerateRecurrence}
                 canEdit={userCanEdit}
             />
 
@@ -1670,6 +1707,7 @@ const App: React.FC = () => {
                         onDelete={deleteService}
                         onBatchStatusUpdate={handleBatchStatusUpdate}
                         onBatchDelete={handleBatchDelete}
+                        onGenerateRecurrence={handleGenerateRecurrence}
                         canEdit={userCanEdit}
                     />
                 ) : (
