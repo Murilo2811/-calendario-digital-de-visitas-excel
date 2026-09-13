@@ -178,6 +178,13 @@ try {
             $ext = [System.IO.Path]::GetExtension($filePath).ToLower()
             $contentType = if ($mimeTypes.ContainsKey($ext)) { $mimeTypes[$ext] } else { "application/octet-stream" }
 
+            # Garante que arquivos HTML nunca fiquem em cache antigo do navegador
+            if ($ext -eq ".html" -or $urlPath -eq "/" -or $filePath.EndsWith("index.html")) {
+                $response.AddHeader("Cache-Control", "no-cache, no-store, must-revalidate")
+                $response.AddHeader("Pragma", "no-cache")
+                $response.AddHeader("Expires", "0")
+            }
+
             try {
                 $fileBytes = [System.IO.File]::ReadAllBytes($filePath)
                 $response.ContentType = $contentType

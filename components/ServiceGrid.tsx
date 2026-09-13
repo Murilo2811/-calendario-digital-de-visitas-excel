@@ -782,8 +782,8 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                     </td>
 
                     {/* Period Column */}
-                    <td className="p-0 h-10 border-b border-slate-100 text-center w-24 min-w-[85px]">
-                        <div className="flex items-center h-full w-full">
+                    <td className="p-0 h-10 border-b border-slate-100 text-center w-28 min-w-[110px]">
+                        <div className="flex items-center h-full w-full px-1 gap-1">
                             <div className="flex-1 h-full min-w-0">
                                 <PeriodCell
                                     value={service.period ?? 0}
@@ -798,12 +798,16 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                                     disabled={!service.period || service.period <= 0}
                                     title={
                                         service.period && service.period > 0
-                                            ? `Gerar recorrência automática a cada ${service.period} meses (+36m)`
+                                            ? `⚡ Gerar recorrência automática a cada ${service.period} meses (+36m)`
                                             : 'Defina um período (> 0) para gerar recorrência'
                                     }
-                                    className="p-1 mr-1 text-slate-400 hover:text-amber-600 disabled:opacity-20 disabled:hover:text-slate-400 disabled:cursor-not-allowed transition-colors rounded hover:bg-amber-50 cursor-pointer shrink-0"
+                                    className={`flex items-center justify-center p-1.5 rounded transition-all shrink-0 cursor-pointer ${
+                                        service.period && service.period > 0
+                                            ? 'bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 shadow-2xs active:scale-95'
+                                            : 'text-slate-300 border border-transparent cursor-not-allowed opacity-30'
+                                    }`}
                                 >
-                                    <Repeat size={13} />
+                                    <Repeat size={13} className={service.period && service.period > 0 ? 'text-amber-700' : 'text-slate-300'} />
                                 </button>
                             )}
                         </div>
@@ -949,7 +953,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                                 { key: 'technicianIds', label: 'Exec.', cls: 'w-28 min-w-[100px]', align: 'center' as const, popoverAlign: 'left' as const },
                                 { key: 'realized', label: 'Realizado', cls: 'w-24 min-w-[90px]', align: 'center' as const, popoverAlign: 'left' as const },
                                 { key: 'lastCalibration', label: 'Últ. Cal.', cls: 'w-32 min-w-[125px]', align: 'center' as const, popoverAlign: 'left' as const },
-                                { key: 'period', label: 'Período', cls: 'w-24 min-w-[85px]', align: 'center' as const, popoverAlign: 'left' as const },
+                                { key: 'period', label: 'Período', cls: 'w-28 min-w-[110px]', align: 'center' as const, popoverAlign: 'left' as const },
                                 { key: 'nextCal', label: 'Próx. Calibração', cls: 'w-36 min-w-[145px]', align: 'center' as const, popoverAlign: 'right' as const },
                                 { key: 'status', label: 'Status', cls: 'w-36 min-w-[140px]', align: 'center' as const, popoverAlign: 'right' as const },
                                 { key: 'forecast', label: 'Previsão', cls: 'w-44 min-w-[170px]', align: 'center' as const, popoverAlign: 'right' as const },
