@@ -12,6 +12,7 @@ import { LoginPage } from './components/LoginPage';
 import { SettingsModal } from './components/SettingsModal';
 import { CalibrationAlertsModal } from './components/CalibrationAlertsModal';
 import { UnsavedChangesModal } from './components/UnsavedChangesModal';
+import { RecurrenceModal } from './components/RecurrenceModal';
 import { createDefaultAdmin, canEdit, canManage, canExport } from './authService';
 import {
     calculateDuration,
@@ -23,7 +24,9 @@ import {
     createRecurringCalibrationForecasts,
     checkPeriodExceeded,
     recalculateFutureForecastsFromNewDate,
-    filterServicesByPeriod
+    filterServicesByPeriod,
+    applyBatchServiceUpdates,
+    generateNextCalibrationService
 } from './utils';
 import {
     openExcelFile,
@@ -73,7 +76,6 @@ import {
     FilePlus2,
     Settings,
     LogOut,
-    Minus,
     Bell,
     AlertTriangle,
     Save,
@@ -106,6 +108,7 @@ const App: React.FC = () => {
     const [isUnsavedExitModalOpen, setIsUnsavedExitModalOpen] = useState(false);
     const [pendingExitAction, setPendingExitAction] = useState<'logout' | 'disconnect' | null>(null);
     const [editingService, setEditingService] = useState<Service | null>(null);
+    const [recurrenceService, setRecurrenceService] = useState<Service | null>(null);
 
     const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
     const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
@@ -640,15 +643,23 @@ const App: React.FC = () => {
             );
         }
 
-        const clientNameNormalized = newServiceData.client.trim().toLowerCase();
+        const clientNameNormalized = (newServiceData.client || '').trim().toLowerCase();
+        let generatedCalService: Service | null = null;
 
         if (editingService) {
+            const isBecomingConfirmed = newServiceData.status === ServiceStatus.CONFIRMED && editingService.status !== ServiceStatus.CONFIRMED;
+            if (isBecomingConfirmed) {
+                const tempSvc: Service = { ...editingService, ...newServiceData };
+                generatedCalService = generateNextCalibrationService(tempSvc, services);
+            }
+
             setServices(prev => {
                 // Atualiza o serviço editado e limpa previsões automáticas antigas não confirmadas do cliente
                 const filtered = prev.filter(s => {
                     if (s.id === editingService.id) return true;
                     if (recurringForecasts.length > 0 &&
-                        s.client.trim().toLowerCase() === clientNameNormalized &&
+                        clientNameNormalized &&
+                        (s.client || '').trim().toLowerCase() === clientNameNormalized &&
                         s.status === ServiceStatus.PREDICTED &&
                         s.description.includes('Calibração Prevista')) {
                         return false; // Substitui pela nova série projetada
@@ -657,10 +668,19 @@ const App: React.FC = () => {
                 });
 
                 const updated = filtered.map(s => s.id === editingService.id ? { ...s, ...newServiceData } : s);
-                return recurringForecasts.length > 0 ? [...updated, ...recurringForecasts] : updated;
+                let result = recurringForecasts.length > 0 ? [...updated, ...recurringForecasts] : updated;
+                if (generatedCalService) {
+                    result = [...result, generatedCalService];
+                }
+                return result;
             });
             setEditingService(null);
-            if (recurringForecasts.length > 0) {
+            if (generatedCalService) {
+                const dateFmt = isValid(parseISO(generatedCalService.startDate))
+                    ? format(parseISO(generatedCalService.startDate), 'dd/MM/yyyy')
+                    : generatedCalService.startDate;
+                showToast(`Atividade confirmada! Nova calibração futura gerada para ${dateFmt}.`);
+            } else if (recurringForecasts.length > 0) {
                 showToast(`Calibração atualizada e ${recurringForecasts.length} agendamento(s) futuro(s) projetado(s) até 36m!`);
             } else {
                 showToast('Atividade atualizada com sucesso!');
@@ -674,7 +694,8 @@ const App: React.FC = () => {
                 // Limpa previsões automáticas antigas não confirmadas do cliente se uma nova calibração base for criada
                 const filtered = prev.filter(s => {
                     if (recurringForecasts.length > 0 &&
-                        s.client.trim().toLowerCase() === clientNameNormalized &&
+                        clientNameNormalized &&
+                        (s.client || '').trim().toLowerCase() === clientNameNormalized &&
                         s.status === ServiceStatus.PREDICTED &&
                         s.description.includes('Calibração Prevista')) {
                         return false;
@@ -729,52 +750,68 @@ const App: React.FC = () => {
 
         recordSnapshot();
 
-        setServices(prev => prev.map(s => {
-            if (s.id !== id) return s;
+        let newlyGenerated: Service | null = null;
 
-            const updatedService = { ...s, [field]: value };
+        setServices(prev => {
+            const nextList = prev.map(s => {
+                if (s.id !== id) return s;
 
-            try {
-                if (field === 'startDate') {
-                    if (!value) {
-                        updatedService.startDate = '';
-                        updatedService.week = 0;
-                    } else {
-                        const newStart = parseISO(value);
-                        if (!isValid(newStart)) return s;
-                        // Calculate duration from old dates if possible
-                        let duration = 5;
-                        if (s.startDate && s.endDate) {
-                            duration = calculateDuration(s.startDate, s.endDate);
+                const updatedService = { ...s, [field]: value };
+
+                try {
+                    if (field === 'startDate') {
+                        if (!value) {
+                            updatedService.startDate = '';
+                            updatedService.week = 0;
+                        } else {
+                            const newStart = parseISO(value);
+                            if (!isValid(newStart)) return s;
+                            // Calculate duration from old dates if possible
+                            let duration = 5;
+                            if (s.startDate && s.endDate) {
+                                duration = calculateDuration(s.startDate, s.endDate);
+                            }
+                            if (duration < 1) duration = 1;
+
+                            const newEnd = addDays(newStart, duration - 1);
+                            updatedService.endDate = format(newEnd, 'yyyy-MM-dd');
+                            updatedService.week = getISOWeek(newStart);
                         }
-                        if (duration < 1) duration = 1;
+                    }
+                    if (field === 'endDate') {
+                        if (!value) {
+                            updatedService.endDate = '';
+                        } else {
+                            const newEnd = parseISO(value);
+                            const start = parseISO(s.startDate);
+                            if (!isValid(newEnd) || (s.startDate && isValid(start) && newEnd < start)) return s;
+                        }
+                    }
+                } catch (e) {
+                    return s; // Revert if date parsing fails
+                }
 
-                        const newEnd = addDays(newStart, duration - 1);
-                        updatedService.endDate = format(newEnd, 'yyyy-MM-dd');
-                        updatedService.week = getISOWeek(newStart);
+                // Realizado = Sim: sincroniza Últ. Cal. com a coluna Fim e altera Status para 'Cliente Previsto'
+                if (field === 'realized') {
+                    if (value === 'sim') {
+                        updatedService.previousLastCalibration = s.lastCalibration || '';
+                        updatedService.lastCalibration = s.endDate;
+                        updatedService.previousStatus = s.status;
+                        updatedService.status = ServiceStatus.PREDICTED;
+                    } else if (value === 'nao') {
+                        if (s.previousLastCalibration !== undefined) {
+                            updatedService.lastCalibration = s.previousLastCalibration;
+                        }
+                        if (s.previousStatus !== undefined) {
+                            updatedService.status = s.previousStatus;
+                        }
                     }
                 }
-                if (field === 'endDate') {
-                    if (!value) {
-                        updatedService.endDate = '';
-                    } else {
-                        const newEnd = parseISO(value);
-                        const start = parseISO(s.startDate);
-                        if (!isValid(newEnd) || (s.startDate && isValid(start) && newEnd < start)) return s;
-                    }
-                }
-            } catch (e) {
-                return s; // Revert if date parsing fails
-            }
 
-            // Realizado = Sim: sincroniza Últ. Cal. com a coluna Fim e altera Status para 'Cliente Previsto'
-            if (field === 'realized') {
-                if (value === 'sim') {
-                    updatedService.previousLastCalibration = s.lastCalibration || '';
-                    updatedService.lastCalibration = s.endDate;
-                    updatedService.previousStatus = s.status;
-                    updatedService.status = ServiceStatus.PREDICTED;
-                } else if (value === 'nao') {
+                // Se alterar a data de Início e Realizado estiver como 'sim', reverte Realizado para 'nao',
+                // restaurando Últ. Calibração e Status anteriores
+                if (field === 'startDate' && s.realized === 'sim' && value !== s.startDate) {
+                    updatedService.realized = 'nao';
                     if (s.previousLastCalibration !== undefined) {
                         updatedService.lastCalibration = s.previousLastCalibration;
                     }
@@ -782,53 +819,61 @@ const App: React.FC = () => {
                         updatedService.status = s.previousStatus;
                     }
                 }
-            }
 
-            // Se alterar a data de Início e Realizado estiver como 'sim', reverte Realizado para 'nao',
-            // restaurando Últ. Calibração e Status anteriores
-            if (field === 'startDate' && s.realized === 'sim' && value !== s.startDate) {
-                updatedService.realized = 'nao';
-                if (s.previousLastCalibration !== undefined) {
-                    updatedService.lastCalibration = s.previousLastCalibration;
-                }
-                if (s.previousStatus !== undefined) {
-                    updatedService.status = s.previousStatus;
-                }
-            }
-
-            // Se alterar a data de Fim e Realizado estiver como 'sim', atualiza também Últ. Cal. e Status
-            if (field === 'endDate' && updatedService.realized === 'sim' && updatedService.endDate) {
-                updatedService.lastCalibration = updatedService.endDate;
-                updatedService.status = ServiceStatus.PREDICTED;
-            }
-
-            // Se alterar a data de Próxima Calibração e Realizado estiver como 'sim', define Status como 'Cliente Previsto'
-            if (field === 'nextCalibration') {
-                if (updatedService.realized === 'sim') {
+                // Se alterar a data de Fim e Realizado estiver como 'sim', atualiza também Últ. Cal. e Status
+                if (field === 'endDate' && updatedService.realized === 'sim' && updatedService.endDate) {
+                    updatedService.lastCalibration = updatedService.endDate;
                     updatedService.status = ServiceStatus.PREDICTED;
                 }
-            }
 
-            // Se alterar o período e Realizado estiver como 'sim', mantém/define Status como 'Cliente Previsto'
-            if (field === 'period' && updatedService.realized === 'sim') {
-                updatedService.status = ServiceStatus.PREDICTED;
-            }
+                // Se alterar a data de Próxima Calibração e Realizado estiver como 'sim', define Status como 'Cliente Previsto'
+                if (field === 'nextCalibration') {
+                    if (updatedService.realized === 'sim') {
+                        updatedService.status = ServiceStatus.PREDICTED;
+                    }
+                }
 
-            // Logic: If confirmed and end date is in the past, sync lastCalibration
-            if (updatedService.status === ServiceStatus.CONFIRMED) {
-                // Check if the update was relevant to this rule (Status change or Date change)
-                if (field === 'status' || field === 'endDate') {
-                    const end = parseISO(updatedService.endDate);
-                    const today = startOfDay(new Date());
+                // Se alterar o período e Realizado estiver como 'sim', mantém/define Status como 'Cliente Previsto'
+                if (field === 'period' && updatedService.realized === 'sim') {
+                    updatedService.status = ServiceStatus.PREDICTED;
+                }
 
-                    if (isValid(end) && isBefore(end, today)) {
-                        updatedService.lastCalibration = updatedService.endDate;
+                // Logic: If confirmed and end date is in the past, sync lastCalibration
+                if (updatedService.status === ServiceStatus.CONFIRMED) {
+                    // Check if the update was relevant to this rule (Status change or Date change)
+                    if (field === 'status' || field === 'endDate') {
+                        const end = parseISO(updatedService.endDate);
+                        const today = startOfDay(new Date());
+
+                        if (isValid(end) && isBefore(end, today)) {
+                            updatedService.lastCalibration = updatedService.endDate;
+                        }
+                    }
+                }
+
+                return updatedService;
+            });
+
+            // Se alterou o status para "Cliente Confirmado", gera a nova atividade futura se houver próxima calibração
+            if (field === 'status' && value === ServiceStatus.CONFIRMED) {
+                const targetService = nextList.find(s => s.id === id);
+                if (targetService) {
+                    newlyGenerated = generateNextCalibrationService(targetService, nextList);
+                    if (newlyGenerated) {
+                        return [...nextList, newlyGenerated];
                     }
                 }
             }
 
-            return updatedService;
-        }));
+            return nextList;
+        });
+
+        if (newlyGenerated) {
+            const targetDate = isValid(parseISO((newlyGenerated as Service).startDate))
+                ? format(parseISO((newlyGenerated as Service).startDate), 'dd/MM/yyyy')
+                : (newlyGenerated as Service).startDate;
+            showToast(`Status confirmado! Nova atividade gerada para ${targetDate} (Cliente Previsto).`);
+        }
     };
 
     const deleteService = (id: string) => {
@@ -837,26 +882,36 @@ const App: React.FC = () => {
         showToast('Atividade removida.');
     };
 
-    const handleBatchStatusUpdate = (ids: string[], newStatus: ServiceStatus) => {
+    const handleBatchUpdate = (
+        ids: string[],
+        updates: { status?: ServiceStatus; realized?: 'sim' | 'nao' }
+    ) => {
         if (ids.length === 0) return;
+        if (!updates.status && !updates.realized) return;
+
         recordSnapshot();
         const targetIds = new Set(ids);
-        const today = startOfDay(new Date());
+        let countGenerated = 0;
 
-        setServices(prev => prev.map(s => {
-            if (!targetIds.has(s.id)) return s;
+        setServices(prev => {
+            const next = applyBatchServiceUpdates(prev, targetIds, updates);
+            countGenerated = next.length - prev.length;
+            return next;
+        });
 
-            const updatedService = { ...s, status: newStatus };
-            if (newStatus === ServiceStatus.CONFIRMED) {
-                const end = parseISO(updatedService.endDate);
-                if (isValid(end) && isBefore(end, today)) {
-                    updatedService.lastCalibration = updatedService.endDate;
-                }
-            }
-            return updatedService;
-        }));
+        const details: string[] = [];
+        if (updates.status) details.push(`Status: "${updates.status}"`);
+        if (updates.realized) details.push(`Realizado: "${updates.realized === 'sim' ? 'Sim' : 'Não'}"`);
 
-        showToast(`Status de ${ids.length} atividade(s) atualizado para "${newStatus}".`);
+        let msg = `${ids.length} atividade(s) atualizada(s) (${details.join(', ')}).`;
+        if (countGenerated > 0) {
+            msg += ` ${countGenerated} nova(s) calibração(ões) gerada(s)!`;
+        }
+        showToast(msg);
+    };
+
+    const handleBatchStatusUpdate = (ids: string[], newStatus: ServiceStatus) => {
+        handleBatchUpdate(ids, { status: newStatus });
     };
 
     const handleBatchDelete = (ids: string[]) => {
@@ -877,33 +932,33 @@ const App: React.FC = () => {
             return;
         }
 
-        if (!baseService.period || baseService.period <= 0) {
-            showToast('Defina um período válido (> 0) para gerar recorrências.');
-            return;
-        }
-
         if (!baseService.startDate || !baseService.endDate) {
-            showToast('A atividade precisa ter datas de Início e Fim válidas.');
+            showToast('A atividade precisa ter datas de Início e Fim válidas para calcular a recorrência.');
             return;
         }
 
+        setRecurrenceService(baseService);
+    };
+
+    const handleConfirmRecurrence = (baseService: Service, customPeriod: number, horizonMonths: number) => {
         recordSnapshot();
 
         const forecasts = createRecurringCalibrationForecasts(
             baseService,
             technicians,
             services,
-            36
+            horizonMonths,
+            customPeriod
         );
 
         if (forecasts.length === 0) {
-            showToast('Nenhuma visita futura pôde ser gerada.');
+            showToast('Nenhuma visita futura pôde ser gerada com os parâmetros escolhidos.');
             return;
         }
 
-        // Adiciona acumulando com os eventos existentes
-        setServices(prev => [...prev, ...forecasts]);
-        showToast(`${forecasts.length} evento(s) futuro(s) de calibração gerado(s) até 36m!`);
+        // Adiciona acumulando com os eventos existentes e ordena cronologicamente por Data de Início
+        setServices(prev => [...prev, ...forecasts].sort((a, b) => (a.startDate || '').localeCompare(b.startDate || '')));
+        showToast(`${forecasts.length} visita(s) futura(s) de calibração gerada(s) a cada ${customPeriod}m até ${horizonMonths}m!`);
     };
 
     const handleServiceMove = (id: string, newStartDate: string, newTechId: string, oldTechId: string) => {
@@ -1314,6 +1369,15 @@ const App: React.FC = () => {
                 actionType={pendingExitAction || 'logout'}
             />
 
+            <RecurrenceModal
+                isOpen={recurrenceService !== null}
+                onClose={() => setRecurrenceService(null)}
+                service={recurrenceService}
+                technicians={technicians}
+                existingServices={services}
+                onConfirm={handleConfirmRecurrence}
+            />
+
             {/* --- HEADER & CONTROLS --- */}
             <header className="bg-white/80 backdrop-blur-sm border-b border-slate-200 p-4 space-y-4 sticky top-0 z-40">
                 <div className="flex items-center justify-between gap-4">
@@ -1367,35 +1431,6 @@ const App: React.FC = () => {
                                 </select>
                             </div>
                         </div>
-
-                        {/* Controles +/- Dias (só no cronograma) */}
-                        {view === 'timeline' && (
-                            <div className="flex items-center bg-slate-100 p-1 rounded-lg border border-slate-200 gap-1">
-                                <button
-                                    onClick={() => setCustomDaysOffset(prev => Math.max(prev - 7, -28))}
-                                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-white hover:text-abb-red rounded-md transition-all"
-                                    title="Reduzir 7 dias"
-                                >
-                                    <Minus size={14} /> 7d
-                                </button>
-                                {customDaysOffset !== 0 && (
-                                    <button
-                                        onClick={() => setCustomDaysOffset(0)}
-                                        className="px-2 py-1.5 text-[10px] font-bold text-amber-600 hover:bg-amber-50 rounded-md transition-all"
-                                        title="Resetar para período padrão"
-                                    >
-                                        {customDaysOffset > 0 ? `+${customDaysOffset}d` : `${customDaysOffset}d`}
-                                    </button>
-                                )}
-                                <button
-                                    onClick={() => setCustomDaysOffset(prev => Math.min(prev + 7, 90))}
-                                    className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-slate-600 hover:bg-white hover:text-abb-red rounded-md transition-all"
-                                    title="Adicionar 7 dias"
-                                >
-                                    <Plus size={14} /> 7d
-                                </button>
-                            </div>
-                        )}
 
                         {/* View Toggle */}
                         <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
@@ -1475,50 +1510,6 @@ const App: React.FC = () => {
                                     )}
                                 </button>
                             </div>
-
-                            {/* Botão Salvar com Indicador de Alterações */}
-                            <button
-                                onClick={handleManualSave}
-                                disabled={isSaving}
-                                title={
-                                    hasUnsavedChanges
-                                        ? 'Existem alterações não salvas! Clique para salvar no Excel (Ctrl+S)'
-                                        : 'Salvar alterações no Excel (Ctrl+S)'
-                                }
-                                className={`flex items-center gap-2 px-3.5 py-1.5 text-xs font-bold rounded-lg border transition-all shadow-sm ${
-                                    isSaving
-                                        ? 'bg-amber-50 border-amber-400 text-amber-800 cursor-wait'
-                                        : hasUnsavedChanges
-                                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300 animate-pulse'
-                                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
-                                }`}
-                            >
-                                {isSaving ? (
-                                    <>
-                                        <Loader2 size={16} className="animate-spin text-amber-700" />
-                                        <span>Salvando...</span>
-                                    </>
-                                ) : hasUnsavedChanges ? (
-                                    <>
-                                        <span className="relative flex h-2 w-2">
-                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
-                                        </span>
-                                        <Save size={16} className="text-white" />
-                                        <span>Salvar Alterações *</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Save size={16} className="text-emerald-700" />
-                                        <span>Salvar</span>
-                                        <span className="text-[10px] font-medium bg-emerald-200/80 text-emerald-800 px-1.5 py-0.5 rounded-full">
-                                            ✓ Em dia
-                                        </span>
-                                    </>
-                                )}
-                            </button>
-
-                            <div className="h-8 w-px bg-slate-200 mx-1"></div>
 
                             {/* Botão Central de Alertas de Calibração */}
                             <button
@@ -1622,6 +1613,48 @@ const App: React.FC = () => {
                         />
                     </div>
 
+                    {/* Botão Salvar com Indicador de Alterações */}
+                    <button
+                        onClick={handleManualSave}
+                        disabled={isSaving}
+                        title={
+                            hasUnsavedChanges
+                                ? 'Existem alterações não salvas! Clique para salvar no Excel (Ctrl+S)'
+                                : 'Salvar alterações no Excel (Ctrl+S)'
+                        }
+                        className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold rounded-lg border transition-all shadow-sm shrink-0 ${
+                            isSaving
+                                ? 'bg-amber-50 border-amber-400 text-amber-800 cursor-wait'
+                                : hasUnsavedChanges
+                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-md ring-2 ring-emerald-300 animate-pulse'
+                                : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                        }`}
+                    >
+                        {isSaving ? (
+                            <>
+                                <Loader2 size={16} className="animate-spin text-amber-700" />
+                                <span>Salvando...</span>
+                            </>
+                        ) : hasUnsavedChanges ? (
+                            <>
+                                <span className="relative flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                                </span>
+                                <Save size={16} className="text-white" />
+                                <span>Salvar Alterações *</span>
+                            </>
+                        ) : (
+                            <>
+                                <Save size={16} className="text-emerald-700" />
+                                <span>Salvar</span>
+                                <span className="text-[10px] font-medium bg-emerald-200/80 text-emerald-800 px-1.5 py-0.5 rounded-full">
+                                    ✓ Em dia
+                                </span>
+                            </>
+                        )}
+                    </button>
+
                     <select
                         className="bg-slate-100 border border-slate-200 rounded-lg text-sm px-3 py-2 focus:outline-none focus:border-abb-red/50 focus:ring-2 focus:ring-abb-red/20 transition-all"
                         value={filterTechId}
@@ -1706,8 +1739,10 @@ const App: React.FC = () => {
                         onUpdate={updateService}
                         onDelete={deleteService}
                         onBatchStatusUpdate={handleBatchStatusUpdate}
+                        onBatchUpdate={handleBatchUpdate}
                         onBatchDelete={handleBatchDelete}
                         onGenerateRecurrence={handleGenerateRecurrence}
+                        onEdit={handleServiceClick}
                         canEdit={userCanEdit}
                     />
                 ) : (

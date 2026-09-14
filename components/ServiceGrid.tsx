@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Service, ServiceStatus, Technician, Client } from '../types';
 import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getClientConflicts, checkPeriodExceeded } from '../utils';
 import { STATUS_STYLE } from '../constants';
-import { Trash2, AlertCircle, Check, ChevronDown, MessageSquare, X, ArrowUp, ArrowDown, ListFilter, Filter, Repeat } from 'lucide-react';
+import { Trash2, AlertCircle, Check, ChevronDown, MessageSquare, X, ArrowUp, ArrowDown, ListFilter, Filter, Repeat, Pencil } from 'lucide-react';
 import { isFuture } from 'date-fns/isFuture';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
@@ -15,8 +15,10 @@ interface ServiceGridProps {
     onUpdate: (id: string, field: keyof Service, value: any) => void;
     onDelete: (id: string) => void;
     onBatchStatusUpdate?: (ids: string[], newStatus: ServiceStatus) => void;
+    onBatchUpdate?: (ids: string[], updates: { status?: ServiceStatus; realized?: 'sim' | 'nao' }) => void;
     onBatchDelete?: (ids: string[]) => void;
     onGenerateRecurrence?: (serviceId: string) => void;
+    onEdit?: (service: Service) => void;
     canEdit?: boolean;
 }
 
@@ -402,15 +404,18 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
     onUpdate,
     onDelete,
     onBatchStatusUpdate,
+    onBatchUpdate,
     onBatchDelete,
     onGenerateRecurrence,
+    onEdit,
     canEdit = true
 }) => {
     const [activeCommentService, setActiveCommentService] = useState<{ id: string; client: string; os: string; comments: string } | null>(null);
 
     // --- Selecao em massa ---
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const [bulkStatus, setBulkStatus] = useState<ServiceStatus>(ServiceStatus.CONFIRMED);
+    const [bulkStatus, setBulkStatus] = useState<ServiceStatus | 'KEEP'>('KEEP');
+    const [bulkRealized, setBulkRealized] = useState<'KEEP' | 'sim' | 'nao'>('KEEP');
     const headerCheckboxRef = useRef<HTMLInputElement>(null);
 
     // --- Filtro e ordenacao por coluna ---
@@ -490,14 +495,30 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
         setSelectedIds(allVisibleSelected ? new Set() : new Set(displayedServices.map(s => s.id)));
     };
 
-    const applyBulkStatus = () => {
+    const applyBulkUpdate = () => {
         if (selectedVisibleIds.length === 0) return;
-        if (onBatchStatusUpdate) {
-            onBatchStatusUpdate(selectedVisibleIds, bulkStatus);
+        if (bulkStatus === 'KEEP' && bulkRealized === 'KEEP') return;
+
+        const updates: { status?: ServiceStatus; realized?: 'sim' | 'nao' } = {};
+        if (bulkStatus !== 'KEEP') updates.status = bulkStatus;
+        if (bulkRealized !== 'KEEP') updates.realized = bulkRealized;
+
+        if (onBatchUpdate) {
+            onBatchUpdate(selectedVisibleIds, updates);
+        } else if (onBatchStatusUpdate && updates.status) {
+            onBatchStatusUpdate(selectedVisibleIds, updates.status);
+            if (updates.realized) {
+                selectedVisibleIds.forEach(id => onUpdate(id, 'realized', updates.realized));
+            }
         } else {
-            selectedVisibleIds.forEach(id => onUpdate(id, 'status', bulkStatus));
+            selectedVisibleIds.forEach(id => {
+                if (updates.status) onUpdate(id, 'status', updates.status);
+                if (updates.realized) onUpdate(id, 'realized', updates.realized);
+            });
         }
         setSelectedIds(new Set());
+        setBulkStatus('KEEP');
+        setBulkRealized('KEEP');
     };
 
     const handleBulkDelete = () => {
@@ -596,6 +617,8 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
             const clientConflicts = getClientConflicts(services, service.client, service.startDate, service.endDate, service.id);
             const hasClientOverlap = clientConflicts.length > 0;
             const calStatus = getCalibrationStatus(service);
+            // Badge de vencimento só aparece quando há uma próxima calibração de fato prevista
+            const showCalBadge = calStatus.isForecast && !!(service.nextCalibration || (service.period && service.period > 0 && isoDate));
 
             return (
                 <tr key={service.id} className={`${rowBgClass} transition-colors group`}>
@@ -795,57 +818,42 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                                 <button
                                     type="button"
                                     onClick={() => onGenerateRecurrence(service.id)}
-                                    disabled={!service.period || service.period <= 0}
-                                    title={
-                                        service.period && service.period > 0
-                                            ? `⚡ Gerar recorrência automática a cada ${service.period} meses (+36m)`
-                                            : 'Defina um período (> 0) para gerar recorrência'
-                                    }
-                                    className={`flex items-center justify-center p-1.5 rounded transition-all shrink-0 cursor-pointer ${
-                                        service.period && service.period > 0
-                                            ? 'bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 shadow-2xs active:scale-95'
-                                            : 'text-slate-300 border border-transparent cursor-not-allowed opacity-30'
-                                    }`}
+                                    title="⚡ Configurar e gerar recorrência de calibração"
+                                    className="flex items-center justify-center p-1.5 rounded transition-all shrink-0 cursor-pointer bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 shadow-2xs active:scale-95"
                                 >
-                                    <Repeat size={13} className={service.period && service.period > 0 ? 'text-amber-700' : 'text-slate-300'} />
+                                    <Repeat size={13} className="text-amber-700" />
                                 </button>
                             )}
                         </div>
                     </td>
 
                     <td className="p-0 border-b border-slate-100 relative h-10 w-36 min-w-[145px]">
-                        {service.realized !== 'sim' ? (
-                            <div className="flex items-center justify-center h-full w-full" title="0 (Não realizado)">
-                                <span className="text-xs font-bold text-slate-400">0</span>
-                            </div>
-                        ) : (
-                            <div className="flex items-center justify-center gap-1 h-full px-1">
-                                {calStatus.level === 'EXPIRED' && (
-                                    <span
-                                        className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded shadow-sm shrink-0"
-                                        title={`Calibração Vencida (${calStatus.targetDateText})`}
-                                    >
-                                        VENC
-                                    </span>
-                                )}
-                                {calStatus.level === 'EXPIRING_SOON' && (
-                                    <span
-                                        className="px-1.5 py-0.5 bg-amber-400 text-amber-950 font-bold text-[9px] rounded animate-pulse shadow-sm ring-1 ring-amber-300 shrink-0"
-                                        title={`Atenção: Vence em ${calStatus.daysRemaining} dias (${calStatus.targetDateText})`}
-                                    >
-                                        {calStatus.daysRemaining}d
-                                    </span>
-                                )}
-                                <input
-                                    type="date"
-                                    className={`grid-date-input flex-1 h-full bg-transparent text-center text-xs font-medium text-slate-700 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none px-1 ${!canEdit ? 'cursor-default' : ''}`}
-                                    value={service.nextCalibration || isoDate || ''}
-                                    onChange={(e) => onUpdate(service.id, 'nextCalibration', e.target.value)}
-                                    readOnly={!canEdit}
-                                    title={nextCalText}
-                                />
-                            </div>
-                        )}
+                        <div className="flex items-center justify-center gap-1 h-full px-1">
+                            {showCalBadge && calStatus.level === 'EXPIRED' && (
+                                <span
+                                    className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded shadow-sm shrink-0"
+                                    title={`Calibração Vencida (${calStatus.targetDateText})`}
+                                >
+                                    VENC
+                                </span>
+                            )}
+                            {showCalBadge && calStatus.level === 'EXPIRING_SOON' && (
+                                <span
+                                    className="px-1.5 py-0.5 bg-amber-400 text-amber-950 font-bold text-[9px] rounded animate-pulse shadow-sm ring-1 ring-amber-300 shrink-0"
+                                    title={`Atenção: Vence em ${calStatus.daysRemaining} dias (${calStatus.targetDateText})`}
+                                >
+                                    {calStatus.daysRemaining}d
+                                </span>
+                            )}
+                            <input
+                                type="date"
+                                className={`grid-date-input flex-1 h-full bg-transparent text-center text-xs font-medium text-slate-700 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none px-1 ${!canEdit ? 'cursor-default' : ''}`}
+                                value={service.nextCalibration || isoDate || ''}
+                                onChange={(e) => onUpdate(service.id, 'nextCalibration', e.target.value)}
+                                readOnly={!canEdit}
+                                title={nextCalText}
+                            />
+                        </div>
                     </td>
 
                     <td className="px-2 py-1 border-b border-slate-100 text-center">
@@ -862,11 +870,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                     </td>
 
                     <td className="px-2 py-1 border-b border-slate-100 text-center overflow-hidden">
-                        {forecastText === '0' ? (
-                            <span className="text-xs font-bold text-slate-400">0</span>
-                        ) : (
-                            <span className={`text-xs truncate ${forecastColor}`}>{forecastText}</span>
-                        )}
+                        <span className={`text-xs truncate ${forecastColor}`}>{forecastText}</span>
                     </td>
 
                     {/* Comments Column */}
@@ -901,14 +905,33 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                     </td>
 
                     {canEdit && (
-                        <td className="px-2 w-10 text-center border-b border-slate-200">
-                            <button
-                                onClick={() => { if (window.confirm('Excluir linha?')) onDelete(service.id); }}
-                                className="text-slate-300 hover:text-abb-red opacity-0 group-hover:opacity-100 transition-opacity"
-                                title="Excluir Linha"
-                            >
-                                <Trash2 size={14} />
-                            </button>
+                        <td className="px-1.5 w-16 text-center border-b border-slate-200">
+                            <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {onEdit && (
+                                    <button
+                                        type="button"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onEdit(service);
+                                        }}
+                                        className="p-1 text-slate-400 hover:text-slate-800 hover:bg-slate-200/60 rounded transition-colors cursor-pointer"
+                                        title="Editar Atividade Completa"
+                                    >
+                                        <Pencil size={13} />
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (window.confirm('Excluir linha?')) onDelete(service.id);
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-abb-red hover:bg-red-50 rounded transition-colors cursor-pointer"
+                                    title="Excluir Linha"
+                                >
+                                    <Trash2 size={13} />
+                                </button>
+                            </div>
                         </td>
                     )}
                 </tr>
@@ -1066,28 +1089,62 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
 
                     <div className="flex items-center gap-2">
                         <label className="text-xs font-medium text-slate-300 whitespace-nowrap">
-                            Alterar status:
+                            Status:
                         </label>
                         <select
                             value={bulkStatus}
-                            onChange={(e) => setBulkStatus(e.target.value as ServiceStatus)}
+                            onChange={(e) => setBulkStatus(e.target.value as ServiceStatus | 'KEEP')}
                             className="bg-slate-800 border border-slate-600 text-white rounded-lg text-xs px-2.5 py-1.5 focus:outline-none focus:border-abb-red focus:ring-1 focus:ring-abb-red transition-all cursor-pointer font-medium"
                         >
+                            <option value="KEEP" className="bg-slate-800 text-slate-400 italic">
+                                (Não alterar)
+                            </option>
                             {Object.values(ServiceStatus).map(s => (
-                                <option key={s} value={s} className="bg-slate-800 text-white">
+                                <option key={s} value={s} className="bg-slate-800 text-white font-medium not-italic">
                                     {s}
                                 </option>
                             ))}
                         </select>
-                        <button
-                            type="button"
-                            onClick={applyBulkStatus}
-                            className="px-3.5 py-1.5 bg-abb-red hover:bg-red-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
-                            title="Aplicar status a todas as atividades selecionadas"
-                        >
-                            <Check size={14} /> Aplicar
-                        </button>
                     </div>
+
+                    <div className="flex items-center gap-2">
+                        <label className="text-xs font-medium text-slate-300 whitespace-nowrap">
+                            Realizado:
+                        </label>
+                        <select
+                            value={bulkRealized}
+                            onChange={(e) => setBulkRealized(e.target.value as 'KEEP' | 'sim' | 'nao')}
+                            className="bg-slate-800 border border-slate-600 text-white rounded-lg text-xs px-2.5 py-1.5 focus:outline-none focus:border-abb-red focus:ring-1 focus:ring-abb-red transition-all cursor-pointer font-medium"
+                        >
+                            <option value="KEEP" className="bg-slate-800 text-slate-400 italic">
+                                (Não alterar)
+                            </option>
+                            <option value="sim" className="bg-slate-800 text-white font-medium not-italic">
+                                Sim
+                            </option>
+                            <option value="nao" className="bg-slate-800 text-white font-medium not-italic">
+                                Não
+                            </option>
+                        </select>
+                    </div>
+
+                    <button
+                        type="button"
+                        onClick={applyBulkUpdate}
+                        disabled={bulkStatus === 'KEEP' && bulkRealized === 'KEEP'}
+                        className={`px-3.5 py-1.5 text-white text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-1.5 active:scale-95 ${
+                            bulkStatus === 'KEEP' && bulkRealized === 'KEEP'
+                                ? 'bg-slate-700 text-slate-400 cursor-not-allowed opacity-60'
+                                : 'bg-abb-red hover:bg-red-700 cursor-pointer'
+                        }`}
+                        title={
+                            bulkStatus === 'KEEP' && bulkRealized === 'KEEP'
+                                ? 'Selecione uma alteração para Status ou Realizado'
+                                : 'Aplicar alterações às atividades selecionadas'
+                        }
+                    >
+                        <Check size={14} /> Aplicar
+                    </button>
 
                     <div className="h-5 w-px bg-slate-700 mx-0.5" />
 

@@ -27,7 +27,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.client || !formData.startDate || !formData.endDate) return;
+    if (!formData.startDate || !formData.endDate) return;
     onSave(formData);
     // Reset form after save (optional, but good for UX if reopening)
     setFormData({
@@ -64,7 +64,6 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
           <div>
             <label className={labelClass}><Building2 size={12} className="inline mr-1"/> Cliente</label>
             <select 
-              required
               autoFocus
               className={inputClass}
               value={formData.client}

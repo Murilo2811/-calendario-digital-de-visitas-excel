@@ -80,8 +80,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEdit) return; // Prevention
-    if (!formData.client || !formData.startDate || !formData.endDate || !formData.technicianIds || formData.technicianIds.length === 0) {
-      alert('Preencha os campos obrigatórios (Cliente, Datas, pelo menos um Técnico).');
+    if (!formData.startDate || !formData.endDate || !formData.technicianIds || formData.technicianIds.length === 0) {
+      alert('Preencha os campos obrigatórios (Datas, pelo menos um Técnico).');
       return;
     }
     onSave(formData as Omit<Service, 'id'>);
@@ -196,9 +196,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
           {serviceToEdit ? (
             <div className="space-y-4">
               <div>
-                <label className={labelClass}>CLIENTE *</label>
+                <label className={labelClass}>CLIENTE</label>
                 <select
-                  required
                   disabled={!canEdit}
                   className={inputClass}
                   value={formData.client}
@@ -318,12 +317,11 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                       onGenerateRecurrence(serviceToEdit.id);
                       onClose();
                     }}
-                    disabled={!formData.period || formData.period <= 0}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-900 bg-amber-200 hover:bg-amber-300 border border-amber-300 rounded-md shadow-2xs transition-all disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0"
-                    title={formData.period && formData.period > 0 ? "Gerar série de visitas futuras (+36m)" : "Defina um período (> 0) para gerar recorrência"}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-amber-900 bg-amber-200 hover:bg-amber-300 border border-amber-300 rounded-md shadow-2xs transition-all cursor-pointer shrink-0"
+                    title="⚡ Configurar e gerar série de visitas futuras"
                   >
                     <Repeat size={14} />
-                    Gerar Recorrência (+36m)
+                    Configurar Recorrência
                   </button>
                 </div>
               )}
@@ -370,9 +368,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
             <React.Fragment>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div>
-                  <label className={labelClass}>CLIENTE *</label>
+                  <label className={labelClass}>CLIENTE</label>
                   <select
-                    required
                     disabled={!canEdit}
                     className={inputClass}
                     value={formData.client}

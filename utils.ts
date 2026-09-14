@@ -10,6 +10,8 @@ import { startOfDay } from 'date-fns/startOfDay';
 import { isBefore } from 'date-fns/isBefore';
 import { addDays } from 'date-fns/addDays';
 import { getISOWeek } from 'date-fns/getISOWeek';
+import { isWeekend } from 'date-fns/isWeekend';
+import { nextMonday } from 'date-fns/nextMonday';
 import { ptBR } from 'date-fns/locale/pt-BR';
 import * as XLSX from 'xlsx';
 
@@ -231,42 +233,65 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
 };
 
 /**
+ * Utility to adjust a date to Monday if it falls on Saturday or Sunday.
+ */
+const adjustToNextMondayIfWeekend = (date: Date): Date => (isWeekend(date) ? nextMonday(date) : date);
+
+/**
  * Creates multiple recurring calibration forecast services up to a max horizon (default: 36 months / 3 years).
- * Example for period=12: returns forecasts for +12m, +24m, +36m.
- * Example for period=6: returns forecasts for +6m, +12m, +18m, +24m, +30m, +36m.
+ * - Identifies the most recent existing visit/period registered for the client to serve as the chronological starting anchor.
+ * - Ensures strict chronological sequence: start date < end date for every cycle, preserving duration.
+ * - If calculated dates fall on a weekend, adjusts them to start on Monday.
+ * - Each subsequent cycle chains from the previous cycle and its last calibration date.
  */
 export const createRecurringCalibrationForecasts = (
   baseService: Service,
   technicians: Technician[],
   existingServices: Service[],
-  maxMonths: number = 36
+  maxMonths: number = 36,
+  overridePeriod?: number
 ): Service[] => {
-  const period = baseService.period;
+  const period = (overridePeriod && overridePeriod > 0) ? overridePeriod : baseService.period;
   if (!period || period <= 0) return [];
 
-  const start = parseISO(baseService.startDate);
-  const end = parseISO(baseService.endDate);
-  if (!isValid(start) || !isValid(end)) return [];
+  const clientNameNormalized = (baseService.client || '').trim().toLowerCase();
+
+  // Âncora cronológica: a visita do cliente mais avançada no tempo (a base, se nenhuma for posterior)
+  const anchorKey = (s: Service) => (s.endDate || s.startDate || '').trim();
+  const baseAnchor = existingServices.reduce((latest, s) => {
+    if (!s.client || s.client.trim().toLowerCase() !== clientNameNormalized) return latest;
+    if (!s.startDate || !isValid(parseISO(s.startDate))) return latest;
+    return anchorKey(s) > anchorKey(latest) ? s : latest;
+  }, baseService);
+
+  const anchorStart = parseISO(baseAnchor.startDate);
+  const anchorEnd = parseISO(baseAnchor.endDate || baseAnchor.startDate);
+  if (!isValid(anchorStart) || !isValid(anchorEnd)) return [];
+
+  // Duração em dias da visita base original (preservada em todos os ciclos, mínimo 1 dia)
+  const baseStart = parseISO(baseService.startDate);
+  const baseEnd = parseISO(baseService.endDate || baseService.startDate);
+  const duration = (isValid(baseStart) && isValid(baseEnd))
+    ? Math.max(1, differenceInDays(baseEnd, baseStart) + 1)
+    : Math.max(1, differenceInDays(anchorEnd, anchorStart) + 1);
 
   const forecasts: Service[] = [];
-  const preferredTechId = baseService.technicianIds?.[0];
+  const preferredTechId = baseService.technicianIds?.[0] || baseAnchor.technicianIds?.[0];
 
-  // Duration in days to preserve the span
-  const duration = differenceInDays(end, start) + 1;
-
-  let cycle = 1;
-  let previousCalDate = baseService.endDate || baseService.startDate;
+  let currentRefStart = anchorStart;
 
   for (let months = period; months <= maxMonths; months += period) {
-    // Início e Fim seguem rigorosamente a premissa da coluna Previsão
-    const cycleStart = addMonths(start, months);
-    const cycleEnd = addMonths(end, months);
+    // Projeta o início somando o período e joga para segunda-feira se cair no fim de semana
+    const cycleStart = adjustToNextMondayIfWeekend(addMonths(currentRefStart, period));
+    // Fim é rigorosamente cronológico e preserva a duração exata da visita
+    const cycleEnd = addDays(cycleStart, duration - 1);
+    const cycle = months / period;
 
     const startDateStr = format(cycleStart, 'yyyy-MM-dd');
     const endDateStr = format(cycleEnd, 'yyyy-MM-dd');
     const week = getISOWeek(cycleStart);
 
-    // Combine existing services + previously generated forecasts in this loop to avoid intra-batch collision
+    // Combina serviços existentes com as novas previsões geradas neste lote para alocar técnicos
     const allServicesToCheck = [...existingServices, ...forecasts];
     const availableTechs = findAvailableTechnicians(technicians, allServicesToCheck, startDateStr, endDateStr);
 
@@ -279,9 +304,9 @@ export const createRecurringCalibrationForecasts = (
       id: `svc-forecast-${Date.now()}-${cycle}-${Math.random().toString(36).substr(2, 5)}`,
       week,
       client: baseService.client,
-      manager: baseService.manager || '',
-      os: '', // Vazio para preenchimento posterior
-      description: `Calibração Prevista (+${months}m - Ciclo ${cycle}) - Ref. OS ${baseService.os || 'Base'}`,
+      manager: baseService.manager || baseAnchor.manager || '',
+      os: '', // Em branco para preenchimento futuro
+      description: `Calibração Prevista (+${months}m - Ciclo ${cycle}) - Ref. OS ${baseService.os || baseAnchor.os || 'Base'}`,
       hp: baseService.hp || 0,
       ht: baseService.ht || 0,
       hv: baseService.hv || 0,
@@ -289,14 +314,16 @@ export const createRecurringCalibrationForecasts = (
       endDate: endDateStr,
       technicianIds: chosenTechIds,
       status: ServiceStatus.PREDICTED,
-      period: baseService.period,
-      lastCalibration: previousCalDate,
-      comments: baseService.comments || '',
+      period,
+      // Ciclo 1 = término da âncora; Ciclo N = término da âncora + (N-1) períodos
+      lastCalibration: format(addMonths(anchorEnd, months - period), 'yyyy-MM-dd'),
+      nextCalibration: format(addMonths(cycleStart, period), 'yyyy-MM-dd'),
+      comments: baseService.comments || baseAnchor.comments || '',
       realized: 'nao'
     });
 
-    previousCalDate = endDateStr;
-    cycle++;
+    // Atualiza a referência para o próximo ciclo encadear cronologicamente
+    currentRefStart = cycleStart;
   }
 
   return forecasts;
@@ -390,11 +417,6 @@ export const calculateDuration = (start: string, end: string): number => {
  * Format: dd/MM/yyyy (padrão brasileiro)
  */
 export const calculateCalibration = (startDate?: string, lastCal?: string, period?: number, manualNextCal?: string, realized?: 'sim' | 'nao') => {
-    // Se a atividade for marcada como Não realizada, a Próxima Calibração é "0"
-    if (realized && realized !== 'sim') {
-        return { nextCalText: '0', forecastDate: null, isoDate: '' };
-    }
-
     if (manualNextCal && isValid(parseISO(manualNextCal))) {
         const manualDate = parseISO(manualNextCal);
         return {
@@ -440,10 +462,6 @@ export const calculateServiceForecast = (
     nextCalText?: string,
     realized?: 'sim' | 'nao'
 ) => {
-    if (nextCalText === '0' || (realized && realized !== 'sim')) {
-        return { forecastText: '0', forecastStartDate: null, forecastEndDate: null };
-    }
-
     if (!startDate || !endDate || !period || period <= 0) {
         return { forecastText: '***', forecastStartDate: null, forecastEndDate: null };
     }
@@ -577,3 +595,240 @@ export const filterServicesByPeriod = (
     return rawStart >= periodStartStr && rawStart <= periodEndStr;
   });
 };
+
+/**
+ * Aplica atualizações em lote (status e/ou realizado) a um conjunto de serviços,
+ * respeitando regras de calibração, precedência de status e histórico de reversão.
+ */
+export const applyBatchServiceUpdates = (
+  services: Service[],
+  targetIds: Set<string>,
+  updates: { status?: ServiceStatus; realized?: 'sim' | 'nao' },
+  referenceDate: Date = new Date()
+): Service[] => {
+  const today = startOfDay(referenceDate);
+
+  const updatedList = services.map(s => {
+    if (!targetIds.has(s.id)) return s;
+
+    let updatedService = { ...s };
+
+    // 1. Processar 'realized'
+    if (updates.realized) {
+      if (updates.realized === 'sim') {
+        updatedService.realized = 'sim';
+        updatedService.previousLastCalibration = s.lastCalibration || '';
+        if (s.endDate) {
+          updatedService.lastCalibration = s.endDate;
+        }
+        // Se não houver status explícito escolhido na barra, aplica a regra padrão:
+        // salva status anterior e muda para Cliente Previsto
+        if (!updates.status) {
+          updatedService.previousStatus = s.status;
+          updatedService.status = ServiceStatus.PREDICTED;
+        }
+      } else if (updates.realized === 'nao') {
+        updatedService.realized = 'nao';
+        if (s.previousLastCalibration !== undefined) {
+          updatedService.lastCalibration = s.previousLastCalibration;
+        }
+        // Se não houver status explícito, restaura status anterior se existir
+        if (!updates.status && s.previousStatus !== undefined) {
+          updatedService.status = s.previousStatus;
+        }
+      }
+    }
+
+    // 2. Processar 'status' explícito (prevalece sobre status padrão de Realizado)
+    if (updates.status) {
+      updatedService.status = updates.status;
+      if (updates.status === ServiceStatus.CONFIRMED) {
+        const end = parseISO(updatedService.endDate);
+        if (isValid(end) && isBefore(end, today)) {
+          updatedService.lastCalibration = updatedService.endDate;
+        }
+      }
+    }
+
+    return updatedService;
+  });
+
+  // Se o status alterado em lote for CONFIRMED ("Cliente Confirmado"),
+  // gera a nova atividade futura para cada atividade que possuir próxima calibração válida.
+  if (updates.status === ServiceStatus.CONFIRMED) {
+    const newlyCreated: Service[] = [];
+    for (const s of updatedList) {
+      if (targetIds.has(s.id)) {
+        const nextService = generateNextCalibrationService(s, [...updatedList, ...newlyCreated]);
+        if (nextService) {
+          newlyCreated.push(nextService);
+        }
+      }
+    }
+    return newlyCreated.length > 0 ? [...updatedList, ...newlyCreated] : updatedList;
+  }
+
+  return updatedList;
+};
+
+/**
+ * Retorna o nome do feriado nacional brasileiro se a data for feriado, ou null.
+ */
+export const getBrazilianHoliday = (date: Date): string | null => {
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const mmdd = `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  // Feriados nacionais fixos (formato MM-DD)
+  const fixedHolidays: Record<string, string> = {
+    '01-01': 'Confraternização Universal',
+    '04-21': 'Tiradentes',
+    '05-01': 'Dia do Trabalho',
+    '09-07': 'Independência do Brasil',
+    '10-12': 'Nossa Senhora Aparecida',
+    '11-02': 'Finados',
+    '11-15': 'Proclamação da República',
+    '11-20': 'Dia da Consciência Negra',
+    '12-25': 'Natal'
+  };
+
+  if (fixedHolidays[mmdd]) {
+    return fixedHolidays[mmdd];
+  }
+
+  // Feriados móveis derivados da Páscoa (Algoritmo Gregoriano de Meeus/Jones/Butcher)
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const easterMonth = Math.floor((h + l - 7 * m + 114) / 31) - 1;
+  const easterDay = ((h + l - 7 * m + 114) % 31) + 1;
+  const easter = new Date(year, easterMonth, easterDay);
+
+  const goodFriday = addDays(easter, -2);
+  const carnival = addDays(easter, -47);
+  const corpusChristi = addDays(easter, 60);
+
+  const isSameDay = (d1: Date, d2: Date) =>
+    d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate();
+
+  if (isSameDay(date, goodFriday)) return 'Sexta-feira Santa';
+  if (isSameDay(date, carnival)) return 'Carnaval';
+  if (isSameDay(date, corpusChristi)) return 'Corpus Christi';
+
+  return null;
+};
+
+/**
+ * Determina se a data é um dia não útil (final de semana ou feriado nacional).
+ */
+export const isNonWorkingDay = (date: Date): { isWeekend: boolean; holidayName: string | null; isNonWorking: boolean } => {
+  const dayOfWeek = date.getDay();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const holidayName = getBrazilianHoliday(date);
+  return {
+    isWeekend,
+    holidayName,
+    isNonWorking: isWeekend || holidayName !== null
+  };
+};
+
+/**
+ * Cria automaticamente uma nova atividade futura na data da próxima calibração
+ * ao confirmar uma visita, preservando todas as características e evitando duplicações.
+ */
+export function generateNextCalibrationService(
+  currentService: Service,
+  existingServices: Service[]
+): Service | null {
+  // Identifica a data da próxima calibração
+  let nextCalStr = currentService.nextCalibration;
+  if (!nextCalStr || !isValid(parseISO(nextCalStr))) {
+    const calc = calculateCalibration(
+      currentService.startDate,
+      currentService.lastCalibration,
+      currentService.period,
+      undefined,
+      currentService.realized
+    );
+    if (calc.isoDate && isValid(parseISO(calc.isoDate))) {
+      nextCalStr = calc.isoDate;
+    }
+  }
+
+  if (!nextCalStr || !isValid(parseISO(nextCalStr))) {
+    return null;
+  }
+
+  const parsedTargetStart = parseISO(nextCalStr);
+  const targetStart = adjustToNextMondayIfWeekend(parsedTargetStart);
+
+  // Calcula a duração da visita original
+  let duration = 1;
+  if (currentService.startDate && currentService.endDate) {
+    try {
+      duration = calculateDuration(currentService.startDate, currentService.endDate);
+    } catch {
+      duration = 1;
+    }
+  }
+  if (duration < 1) duration = 1;
+
+  const targetEnd = addDays(targetStart, duration - 1);
+  const startDateStr = format(targetStart, 'yyyy-MM-dd');
+  const endDateStr = format(targetEnd, 'yyyy-MM-dd');
+
+  // Previne duplicação se já existir atividade futura para o mesmo cliente na mesma data
+  const alreadyExists = existingServices.some(s =>
+    s.id !== currentService.id &&
+    s.client &&
+    currentService.client &&
+    s.client.trim().toLowerCase() === currentService.client.trim().toLowerCase() &&
+    s.startDate === startDateStr
+  );
+
+  if (alreadyExists) {
+    return null;
+  }
+
+  // Próxima calibração para o ciclo seguinte
+  const period = currentService.period || 0;
+  let futureNextCal = '';
+  if (period > 0) {
+    futureNextCal = format(addMonths(targetStart, period), 'yyyy-MM-dd');
+  }
+
+  const newService: Service = {
+    id: `svc-nextcal-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    week: getISOWeek(targetStart),
+    client: currentService.client,
+    manager: currentService.manager || '',
+    os: currentService.os || '',
+    description: currentService.description || '',
+    hp: currentService.hp || 0,
+    ht: currentService.ht || 0,
+    hv: currentService.hv || 0,
+    startDate: startDateStr,
+    endDate: endDateStr,
+    technicianIds: currentService.technicianIds ? [...currentService.technicianIds] : [],
+    status: ServiceStatus.PREDICTED,
+    period,
+    lastCalibration: currentService.endDate || currentService.startDate || '',
+    nextCalibration: futureNextCal,
+    comments: currentService.comments || '',
+    realized: 'nao'
+  };
+
+  return newService;
+}
