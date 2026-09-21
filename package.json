@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "node clean-dist.js && tsc && vite build",
     "preview": "vite preview",
     "test": "node --experimental-transform-types --import ./test-resolver.mjs --test \"*.test.ts\""
   },

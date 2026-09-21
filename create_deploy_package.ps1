@@ -15,7 +15,7 @@ if (-not (Test-Path $targetDir)) {
 $distSource = Join-Path $sourceDir "dist"
 $distTarget = Join-Path $targetDir "dist"
 if (Test-Path $distTarget) {
-    Get-ChildItem -Path $distTarget -Recurse | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+    Remove-Item -Path $distTarget -Recurse -Force -ErrorAction SilentlyContinue
 }
 Copy-Item -Path $distSource -Destination $targetDir -Recurse -Force
 

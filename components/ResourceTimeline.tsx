@@ -314,7 +314,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
 
         const borderStyle = isPeriodExceeded
             ? 'ring-2 ring-red-500 border-red-600'
-            : (hasClientOverlap ? 'ring-2 ring-amber-400 border-amber-500' : 'border-white/20');
+            : (hasClientOverlap ? 'ring-2 ring-amber-400 border-amber-500' : 'border-white');
 
         return (
             <div
@@ -508,7 +508,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                                 <div
                                                     key={idx}
                                                     className={`flex-1 border-r border-slate-100 h-full ${cellMinWidth} ${
-                                                        isNonWorking ? 'bg-red-100/50 border-r-red-200/40' : ''
+                                                        isNonWorking ? 'bg-abb-red border-r-white/30' : ''
                                                     }`}
                                                 />
                                             );
@@ -735,7 +735,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                                             <div
                                                                 key={i}
                                                                 className={`flex-1 border-r border-slate-100 h-full ${
-                                                                    isNonWorking ? 'bg-red-100/50 border-r-red-200/40' : ''
+                                                                    isNonWorking ? 'bg-abb-red border-r-white/30' : ''
                                                                 }`}
                                                             />
                                                         );
