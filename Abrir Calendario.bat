@@ -6,13 +6,13 @@ title Calendario Digital de Visitas - ABB
 pushd "%~dp0"
 
 :: 1. Inicia o micro-servidor local em segundo plano
-start /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0server.ps1" -Port 3000
+start /min powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0server.ps1" -Port 3050
 
 :: 2. Pequeno delay para o listener iniciar
 timeout /t 1 /nobreak >nul
 
 :: 3. Tenta abrir no Microsoft Edge em modo Janela de Aplicativo (sem barra de URL)
-set "APP_URL=http://localhost:3000"
+set "APP_URL=http://localhost:3050"
 
 if exist "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" (
     start "" "%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe" --app=%APP_URL% --window-size=1440,900
