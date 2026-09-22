@@ -4,9 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --port 3050",
     "build": "node clean-dist.js && tsc && vite build",
-    "preview": "vite preview",
+    "preview": "vite preview --port 3050",
     "test": "node --experimental-transform-types --import ./test-resolver.mjs --test \"*.test.ts\""
   },
   "dependencies": {

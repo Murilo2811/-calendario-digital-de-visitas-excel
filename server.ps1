@@ -8,6 +8,29 @@ param(
     [string]$ExcelFileName = "Calendario_Digital_Base.xlsx"
 )
 
+# Garantia de segurança: NUNCA usar porta 3000 sob nenhuma hipótese
+if ($Port -eq 3000) {
+    $Port = 3050
+}
+
+$portFile = Join-Path $env:TEMP "calendario_abb_port.txt"
+
+# Verifica se já existe uma instância ativa da aplicação nesta máquina
+$portsToCheck = @(3050..3070)
+foreach ($checkPort in $portsToCheck) {
+    if ($checkPort -eq 3000) { continue }
+    try {
+        $status = Invoke-RestMethod -Uri "http://localhost:$checkPort/api/excel/status" -TimeoutSec 1 -ErrorAction Stop
+        if ($status.running -eq $true) {
+            Write-Host "Servidor ja em execucao na porta $checkPort." -ForegroundColor Green
+            Set-Content -Path $portFile -Value "$checkPort" -Force
+            Exit 0
+        }
+    } catch {
+        # Porta nao está rodando nossa API, segue a busca
+    }
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $distDir = Join-Path $scriptDir "dist"
 $excelFilePath = Join-Path $scriptDir $ExcelFileName
@@ -38,13 +61,14 @@ $mimeTypes = @{
     ".xlsx" = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 }
 
-# Tenta iniciar o HttpListener na porta configurada ou tenta portas subsequentes
+# Tenta iniciar o HttpListener na porta configurada (3050+), pulando SEMPRE a porta 3000
 $listener = New-Object System.Net.HttpListener
 $started = $false
-$maxTries = 5
+$maxTries = 20
 
 for ($i = 0; $i -lt $maxTries; $i++) {
     $currentPort = $Port + $i
+    if ($currentPort -eq 3000) { continue }
     $prefix = "http://localhost:$currentPort/"
     $listener.Prefixes.Clear()
     $listener.Prefixes.Add($prefix)
@@ -52,6 +76,7 @@ for ($i = 0; $i -lt $maxTries; $i++) {
         $listener.Start()
         $started = $true
         $Port = $currentPort
+        Set-Content -Path $portFile -Value "$currentPort" -Force
         Write-Host "Servidor ativo em: $prefix" -ForegroundColor Green
         break
     } catch {
@@ -204,4 +229,7 @@ try {
         $listener.Stop()
     }
     $listener.Close()
+    if (Test-Path $portFile) {
+        Remove-Item -Path $portFile -Force -ErrorAction SilentlyContinue
+    }
 }

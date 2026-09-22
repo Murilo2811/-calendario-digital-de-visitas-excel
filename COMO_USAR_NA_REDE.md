@@ -41,3 +41,9 @@ Basta copiar os seguintes arquivos e pastas para o diretório compartilhado na r
 * **Admin:** Acesso total (gerenciar técnicos, clientes, usuários, alterar senhas e editar visitas).
 * **Operador:** Criação, movimentação (Drag & Drop), edição e exclusão de visitas/calibrações.
 * **Usuário (Consulta):** Visualização do cronograma, filtros e relatórios de vencimento, sem permissão de edição.
+
+---
+
+## 🌐 Configuração de Portas e Conectividade
+* **Porta Padrão:** O sistema utiliza nativamente a porta **`3050`** (ou portas subsequentes `3051`, `3052` se a 3050 estiver em uso).
+* **Isolamento de Conflitos:** A porta **`3000`** está permanentemente bloqueada de ser usada por esta aplicação em qualquer computador, evitando conflitos com outras aplicações web ou sistemas em execução na mesma máquina.
