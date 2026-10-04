@@ -1,12 +1,13 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Service, ServiceStatus, Technician, Client } from '../types';
-import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getClientConflicts, checkPeriodExceeded } from '../utils';
+import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getClientConflicts, checkPeriodExceeded, getPreviousServiceStartDate } from '../utils';
 import { STATUS_STYLE } from '../constants';
 import { Trash2, AlertCircle, Check, ChevronDown, MessageSquare, X, ArrowUp, ArrowDown, ListFilter, Filter, Repeat, Pencil } from 'lucide-react';
 import { isFuture } from 'date-fns/isFuture';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
 import { getISOWeek } from 'date-fns/getISOWeek';
+import { format } from 'date-fns/format';
 
 interface ServiceGridProps {
     services: Service[];
@@ -794,15 +795,37 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                         </select>
                     </td>
 
-                    <td className="p-0 border-b border-slate-100 relative h-10 w-32 min-w-[125px]">
-                        <input
-                            type="date"
-                            className={`grid-date-input w-full h-full bg-transparent text-center text-xs text-slate-500 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none px-1 ${!canEdit ? 'cursor-default' : ''}`}
-                            value={service.lastCalibration || ''}
-                            onChange={(e) => onUpdate(service.id, 'lastCalibration', e.target.value)}
-                            readOnly={!canEdit}
-                        />
-                    </td>
+                    {/* Última Calibração Column */}
+                    {(() => {
+                        const prevStartDate = getPreviousServiceStartDate(service, services);
+                        const hasPrevious = prevStartDate !== null;
+                        const displayDate = hasPrevious ? prevStartDate : (service.lastCalibration || '');
+
+                        return (
+                            <td className="p-0 border-b border-slate-100 relative h-10 w-32 min-w-[125px]">
+                                <input
+                                    type="date"
+                                    className={`grid-date-input w-full h-full text-center text-xs outline-none px-1 transition-colors ${
+                                        hasPrevious
+                                            ? 'bg-slate-100/70 text-slate-700 font-semibold cursor-not-allowed border-x border-slate-200/50'
+                                            : 'bg-transparent text-slate-600 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50'
+                                    } ${!canEdit ? 'cursor-default opacity-80' : ''}`}
+                                    value={displayDate}
+                                    onChange={(e) => {
+                                        if (!hasPrevious) {
+                                            onUpdate(service.id, 'lastCalibration', e.target.value);
+                                        }
+                                    }}
+                                    readOnly={!canEdit || hasPrevious}
+                                    title={
+                                        hasPrevious
+                                            ? `Reflete a data de início da visita anterior do mesmo cliente (${isValid(parseISO(prevStartDate)) ? format(parseISO(prevStartDate), 'dd/MM/yyyy') : prevStartDate})`
+                                            : (canEdit ? 'Primeira visita do cliente: informe a última calibração manualmente' : 'Última calibração')
+                                    }
+                                />
+                            </td>
+                        );
+                    })()}
 
                     {/* Period Column */}
                     <td className="p-0 h-10 border-b border-slate-100 text-center w-28 min-w-[110px]">

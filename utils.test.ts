@@ -2,7 +2,7 @@
 // Roda sem framework: `npm test` (node:test + node:assert, type stripping nativo do Node 24).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod, calculateServiceForecast, applyBatchServiceUpdates, getBrazilianHoliday, isNonWorkingDay, generateNextCalibrationService } from './utils.ts';
+import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod, calculateServiceForecast, applyBatchServiceUpdates, getBrazilianHoliday, isNonWorkingDay, generateNextCalibrationService, getPreviousServiceStartDate, syncServicesLastCalibration } from './utils.ts';
 import { ServiceStatus, TechType } from './types.ts';
 import type { Service, Technician } from './types.ts';
 
@@ -179,41 +179,29 @@ test('filterServicesByPeriod: filtra exclusivamente pela data de inicio (startDa
   assert.ok(!ano2024.some(s => s.id === 's1'), 's1 iniciou em 2025, nao deve aparecer em 2024');
 });
 
-test('sincronização de Realizado: define Últ. Cal. com base na coluna Fim e reverte ao marcar Não', () => {
-  const item: Service = base({
-    startDate: '2026-05-10',
-    endDate: '2026-05-15',
-    lastCalibration: '2025-05-15',
-    realized: 'nao',
-  });
+test('getPreviousServiceStartDate e syncServicesLastCalibration: Últ. Cal. reflete a data de início da visita anterior do mesmo cliente', () => {
+  const v1 = base({ id: 'v1', client: 'CLIENTE-A', startDate: '2025-05-10', endDate: '2025-05-15', lastCalibration: '2024-11-10' });
+  const v2 = base({ id: 'v2', client: 'CLIENTE-A', startDate: '2025-11-10', endDate: '2025-11-15', lastCalibration: '' });
+  const v3 = base({ id: 'v3', client: 'CLIENTE-A', startDate: '2026-05-10', endDate: '2026-05-15', lastCalibration: '' });
+  const vOutro = base({ id: 'v4', client: 'CLIENTE-B', startDate: '2025-08-01', endDate: '2025-08-05', lastCalibration: '2025-02-01' });
 
-  // Simula seleção de 'sim'
-  const previous = item.lastCalibration || '';
-  const updatedSim: Service = {
-    ...item,
-    realized: 'sim',
-    previousLastCalibration: previous,
-    lastCalibration: item.endDate,
-  };
+  const all = [v1, v2, v3, vOutro];
 
-  assert.equal(updatedSim.lastCalibration, '2026-05-15', 'Últ. Cal. deve assumir a data de Fim');
-  assert.equal(updatedSim.previousLastCalibration, '2025-05-15', 'Deve guardar a data anterior');
+  // v1 é a primeira visita do CLIENTE-A (não tem anterior)
+  assert.equal(getPreviousServiceStartDate(v1, all), null);
 
-  // Simula alteração posterior da data de Fim enquanto Realizado = 'sim'
-  const updatedDataFim: Service = {
-    ...updatedSim,
-    endDate: '2026-05-20',
-    lastCalibration: '2026-05-20',
-  };
-  assert.equal(updatedDataFim.lastCalibration, '2026-05-20', 'Últ. Cal. acompanha a nova data de Fim');
+  // v2 tem v1 como anterior -> reflete startDate de v1 ('2025-05-10')
+  assert.equal(getPreviousServiceStartDate(v2, all), '2025-05-10');
 
-  // Simula reversão para 'nao'
-  const revertedNao: Service = {
-    ...updatedDataFim,
-    realized: 'nao',
-    lastCalibration: updatedDataFim.previousLastCalibration,
-  };
-  assert.equal(revertedNao.lastCalibration, '2025-05-15', 'Últ. Cal. deve reverter para a data anterior');
+  // v3 tem v2 como anterior mais recente -> reflete startDate de v2 ('2025-11-10')
+  assert.equal(getPreviousServiceStartDate(v3, all), '2025-11-10');
+
+  // syncServicesLastCalibration sincroniza em massa
+  const synced = syncServicesLastCalibration(all);
+  assert.equal(synced[0].lastCalibration, '2024-11-10', 'Primeira visita preserva calibração manual/histórica');
+  assert.equal(synced[1].lastCalibration, '2025-05-10', 'Segunda visita reflete início da primeira');
+  assert.equal(synced[2].lastCalibration, '2025-11-10', 'Terceira visita reflete início da segunda');
+  assert.equal(synced[3].lastCalibration, '2025-02-01', 'Cliente B sem anterior preserva valor próprio');
 });
 
 test('calculateCalibration: aceita data manual e tem precedencia sobre o calculo', () => {
@@ -222,7 +210,7 @@ test('calculateCalibration: aceita data manual e tem precedencia sobre o calculo
   assert.equal(isoDate, '2026-09-25');
 });
 
-test('sincronização de Status: muda para Cliente Previsto quando Realizado for Sim e reverte ao marcar Não', () => {
+test('independência de Status e Realizado: alterar Realizado mantém o Status intacto e vice-versa', () => {
   const item: Service = base({
     startDate: '2026-05-10',
     endDate: '2026-05-15',
@@ -231,31 +219,28 @@ test('sincronização de Status: muda para Cliente Previsto quando Realizado for
     realized: 'nao',
   });
 
-  // 1. Ao selecionar 'sim', salva previousStatus e muda status para Cliente Previsto
+  // 1. Ao selecionar 'sim', mantém Status original (Cliente Confirmado) e Últ. Cal. não é sobrescrita
   const updatedSim: Service = {
     ...item,
     realized: 'sim',
-    previousStatus: item.status,
-    status: ServiceStatus.PREDICTED,
   };
-  assert.equal(updatedSim.status, ServiceStatus.PREDICTED, 'Status deve mudar para Cliente Previsto');
-  assert.equal(updatedSim.previousStatus, ServiceStatus.CONFIRMED, 'previousStatus deve guardar o status original');
+  assert.equal(updatedSim.status, ServiceStatus.CONFIRMED, 'Status deve permanecer Cliente Confirmado');
+  assert.equal(updatedSim.lastCalibration, '2025-05-15', 'Últ. Calibração deve permanecer intacta');
 
-  // 2. Ao alterar a data de próxima calibração enquanto Realizado for 'sim', mantém/assegura Cliente Previsto
+  // 2. Ao alterar a data de próxima calibração enquanto Realizado for 'sim', Status permanece intacto
   const updatedNextCal: Service = {
     ...updatedSim,
     nextCalibration: '2026-11-20',
-    status: ServiceStatus.PREDICTED,
   };
-  assert.equal(updatedNextCal.status, ServiceStatus.PREDICTED);
+  assert.equal(updatedNextCal.status, ServiceStatus.CONFIRMED, 'Status deve permanecer inalterado');
 
-  // 3. Ao reverter para 'nao', status reverte para o status anterior (Cliente Confirmado)
+  // 3. Ao reverter para 'nao', Status e Últ. Cal. continuam intactos
   const revertedNao: Service = {
     ...updatedNextCal,
     realized: 'nao',
-    status: updatedNextCal.previousStatus || updatedNextCal.status,
   };
-  assert.equal(revertedNao.status, ServiceStatus.CONFIRMED, 'Status deve reverter para o original');
+  assert.equal(revertedNao.status, ServiceStatus.CONFIRMED, 'Status deve continuar Cliente Confirmado');
+  assert.equal(revertedNao.lastCalibration, '2025-05-15', 'Últ. Calibração permanece intacta');
 });
 
 test('getCalibrationStatus segue a regra de vencimento pela data de fim quando realizado for nao', () => {
@@ -303,7 +288,7 @@ test('calculateServiceForecast calcula as datas de previsão formatadas', () => 
   assert.equal(r3.forecastText, '***');
 });
 
-test('ao alterar a data de início em atividade realizada, Realizado reverte para "nao", Últ. Cal. e Status são restaurados', () => {
+test('ao alterar a data de início em atividade realizada, Realizado reverte para "nao", Últ. Cal. é restaurada e Status permanece intacto', () => {
   // Simula estado de atividade que foi realizada
   const activeSim: Service = base({
     startDate: '2026-05-10',
@@ -311,8 +296,7 @@ test('ao alterar a data de início em atividade realizada, Realizado reverte par
     realized: 'sim',
     previousLastCalibration: '2025-05-15',
     lastCalibration: '2026-05-15',
-    previousStatus: ServiceStatus.CONFIRMED,
-    status: ServiceStatus.PREDICTED,
+    status: ServiceStatus.CONFIRMED,
   });
 
   // Simula a lógica de transição disparada na alteração de startDate
@@ -323,13 +307,12 @@ test('ao alterar a data de início em atividade realizada, Realizado reverte par
     ...(activeSim.realized === 'sim' && newStartDate !== activeSim.startDate ? {
       realized: 'nao',
       lastCalibration: activeSim.previousLastCalibration ?? activeSim.lastCalibration,
-      status: activeSim.previousStatus ?? activeSim.status,
     } : {}),
   };
 
   assert.equal(updatedOnStartChange.realized, 'nao', 'Realizado deve reverter para nao');
   assert.equal(updatedOnStartChange.lastCalibration, '2025-05-15', 'Últ. Cal. deve ser restaurada para a anterior');
-  assert.equal(updatedOnStartChange.status, ServiceStatus.CONFIRMED, 'Status deve ser restaurado para o anterior');
+  assert.equal(updatedOnStartChange.status, ServiceStatus.CONFIRMED, 'Status deve permanecer intacto (CONFIRMED)');
 
   // Próx. Calibração e Previsão são calculadas e preenchidas para a nova data
   const nextCal = calculateCalibration(
@@ -417,7 +400,7 @@ test('recorrência: cadastro deve ter início e fim seguindo a premissa da colun
   assert.ok(forecastStartDate && forecastEndDate, 'Previsão deve calcular datas');
   assert.equal(ciclo1.startDate, '2026-09-10', 'Início do 1º ciclo deve ser exatamente 6 meses após o início');
   assert.equal(ciclo1.endDate, '2026-09-14', 'Fim do 1º ciclo deve ser exatamente 6 meses após o fim');
-  assert.equal(ciclo1.lastCalibration, '2026-03-14', 'Última calibração do 1º ciclo deve ser o fim da visita base');
+  assert.equal(ciclo1.lastCalibration, '2026-03-10', 'Última calibração do 1º ciclo deve ser o início da visita base');
   assert.equal(ciclo1.status, ServiceStatus.PREDICTED);
   assert.equal(ciclo1.realized, 'nao');
   assert.equal(ciclo1.os, '');
@@ -426,7 +409,7 @@ test('recorrência: cadastro deve ter início e fim seguindo a premissa da colun
   const ciclo2 = forecasts[1];
   assert.equal(ciclo2.startDate, '2027-03-10');
   assert.equal(ciclo2.endDate, '2027-03-14');
-  assert.equal(ciclo2.lastCalibration, '2026-09-14', 'Última calibração do ciclo 2 é o fim do ciclo 1');
+  assert.equal(ciclo2.lastCalibration, '2026-09-10', 'Última calibração do ciclo 2 é o início do ciclo 1');
 
   // Todos os ciclos gerados devem ter início, fim e semana válidos
   for (const f of forecasts) {
@@ -473,9 +456,9 @@ test('recorrência: identifica o último período cadastrado do cliente como ân
   // Dezembro/2026 + 6m = Junho/2027
   assert.equal(primeiroCiclo.startDate, '2027-06-07', 'Início deve ser 07/06/2027');
   assert.equal(primeiroCiclo.endDate, '2027-06-11', 'Fim deve ser 11/06/2027 (5 dias)');
-  assert.equal(primeiroCiclo.lastCalibration, '2026-12-11', 'Ciclo 1: última calibração = término da âncora');
-  assert.equal(forecasts[1].lastCalibration, '2027-06-11', 'Ciclo 2: última calibração = término da âncora + período');
-  assert.equal(forecasts[2].lastCalibration, '2027-12-11', 'Ciclo 3: última calibração = término da âncora + 2x período');
+  assert.equal(primeiroCiclo.lastCalibration, '2026-12-07', 'Ciclo 1: última calibração = início da âncora');
+  assert.equal(forecasts[1].lastCalibration, '2027-06-07', 'Ciclo 2: última calibração = início da âncora + período');
+  assert.equal(forecasts[2].lastCalibration, '2027-12-07', 'Ciclo 3: última calibração = início da âncora + 2x período');
 
   // Todos os ciclos gerados devem seguir ordem estritamente cronológica (início < fim e ciclo[i] > ciclo[i-1])
   for (let i = 0; i < forecasts.length; i++) {
@@ -541,23 +524,21 @@ test('applyBatchServiceUpdates: alteração em massa de Status e Realizado com r
   assert.equal(updatedStatusOnly[2].status, ServiceStatus.WITH_ORDER, 's3 não deve ser alterado');
 
   // 2. Atualizar apenas realizado para 'sim' (sem status explícito):
-  // Deve adotar a regra padrão: status vira 'Cliente Previsto', lastCalibration recebe endDate
+  // Status e lastCalibration permanecem inalterados e independentes
   const updatedRealizedOnly = applyBatchServiceUpdates([s1, s2], new Set(['s1']), {
     realized: 'sim',
   });
   assert.equal(updatedRealizedOnly[0].realized, 'sim');
-  assert.equal(updatedRealizedOnly[0].status, ServiceStatus.PREDICTED, 'Status padrão deve virar Cliente Previsto');
-  assert.equal(updatedRealizedOnly[0].lastCalibration, '2026-02-15', 'Última calibração deve ser sincronizada com endDate');
-  assert.equal(updatedRealizedOnly[0].previousStatus, ServiceStatus.WITH_ORDER, 'Deve salvar status anterior');
-  assert.equal(updatedRealizedOnly[0].previousLastCalibration, '2025-08-15', 'Deve salvar calibração anterior');
+  assert.equal(updatedRealizedOnly[0].status, ServiceStatus.WITH_ORDER, 'Status deve permanecer inalterado (WITH_ORDER)');
+  assert.equal(updatedRealizedOnly[0].lastCalibration, '2025-08-15', 'Última calibração não é sobrescrita');
 
-  // 3. Atualizar de volta para 'nao': restaura status anterior e calibração anterior
+  // 3. Atualizar de volta para 'nao': calibração e status inalterados
   const revertedRealized = applyBatchServiceUpdates(updatedRealizedOnly, new Set(['s1']), {
     realized: 'nao',
   });
   assert.equal(revertedRealized[0].realized, 'nao');
-  assert.equal(revertedRealized[0].status, ServiceStatus.WITH_ORDER, 'Status anterior deve ser restaurado');
-  assert.equal(revertedRealized[0].lastCalibration, '2025-08-15', 'Calibração anterior deve ser restaurada');
+  assert.equal(revertedRealized[0].status, ServiceStatus.WITH_ORDER, 'Status deve permanecer inalterado (WITH_ORDER)');
+  assert.equal(revertedRealized[0].lastCalibration, '2025-08-15', 'Calibração preservada');
 
   // 4. Atualizar ambos ao mesmo tempo (status explícito + realizado: 'sim'):
   // O status explícito deve prevalecer sobre a regra padrão de 'Cliente Previsto'
@@ -567,7 +548,7 @@ test('applyBatchServiceUpdates: alteração em massa de Status e Realizado com r
   });
   assert.equal(updatedBoth[0].realized, 'sim');
   assert.equal(updatedBoth[0].status, ServiceStatus.CONFIRMED, 'Status explícito escolhido na barra prevalece');
-  assert.equal(updatedBoth[0].lastCalibration, '2026-02-15', 'Última calibração ainda sincroniza com endDate');
+  assert.equal(updatedBoth[0].lastCalibration, '2025-08-15', 'Última calibração permanece inalterada');
 });
 
 test('getBrazilianHoliday e isNonWorkingDay: identificação correta de fins de semana e feriados nacionais', () => {
@@ -648,7 +629,7 @@ test('generateNextCalibrationService: cria nova atividade ao confirmar status pr
   assert.equal(next.startDate, '2026-09-09');
   assert.equal(next.endDate, '2026-09-13'); // Preserva 5 dias de duração (9 a 13)
   assert.equal(next.period, 6);
-  assert.equal(next.lastCalibration, '2026-03-13');
+  assert.equal(next.lastCalibration, '2026-03-09');
   assert.equal(next.nextCalibration, '2027-03-09');
 });
 

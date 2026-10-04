@@ -3,7 +3,9 @@ import { Modal } from './Modal';
 import { Service, ServiceStatus, Technician, Client } from '../types';
 import { X, PlusCircle, Pencil, Trash2, AlertTriangle, Repeat } from 'lucide-react';
 import { format } from 'date-fns/format';
-import { checkPeriodExceeded } from '../utils';
+import { parseISO } from 'date-fns/parseISO';
+import { isValid } from 'date-fns/isValid';
+import { checkPeriodExceeded, getPreviousServiceStartDate } from '../utils';
 
 interface AddServiceModalProps {
   isOpen: boolean;
@@ -15,6 +17,7 @@ interface AddServiceModalProps {
   serviceToEdit?: Service | null;
   onGenerateRecurrence?: (serviceId: string) => void;
   canEdit?: boolean;
+  services?: Service[];
 }
 
 export const AddServiceModal: React.FC<AddServiceModalProps> = ({
@@ -26,7 +29,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   clients,
   serviceToEdit,
   onGenerateRecurrence,
-  canEdit = true
+  canEdit = true,
+  services = []
 }) => {
   const getInitialFormData = () => ({
     week: parseInt(format(new Date(), 'w')),
@@ -77,6 +81,13 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
 
   if (!isOpen) return null;
 
+  const previousStartDate = (services.length > 0 && formData.client && formData.startDate)
+    ? getPreviousServiceStartDate(
+        { id: serviceToEdit?.id || 'temp-id', client: formData.client, startDate: formData.startDate },
+        services
+      )
+    : null;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEdit) return; // Prevention
@@ -84,7 +95,11 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
       alert('Preencha os campos obrigatórios (Datas, pelo menos um Técnico).');
       return;
     }
-    onSave(formData as Omit<Service, 'id'>);
+    const dataToSave = {
+      ...formData,
+      lastCalibration: previousStartDate || formData.lastCalibration || ''
+    };
+    onSave(dataToSave as Omit<Service, 'id'>);
   };
 
   const handleChange = (field: keyof Service, value: any) => {
@@ -99,18 +114,12 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
         setFormData(prev => ({
           ...prev,
           realized: 'sim',
-          previousLastCalibration: prev.lastCalibration || '',
-          lastCalibration: prev.endDate || '',
-          previousStatus: prev.status,
-          status: ServiceStatus.PREDICTED
         }));
         return;
       } else if (value === 'nao') {
         setFormData(prev => ({
           ...prev,
           realized: 'nao',
-          lastCalibration: prev.previousLastCalibration !== undefined ? prev.previousLastCalibration : prev.lastCalibration,
-          status: prev.previousStatus !== undefined ? prev.previousStatus : prev.status
         }));
         return;
       }
@@ -120,7 +129,6 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
       setFormData(prev => ({
         ...prev,
         nextCalibration: value,
-        ...(prev.realized === 'sim' ? { status: ServiceStatus.PREDICTED } : {})
       }));
       return;
     }
@@ -132,8 +140,6 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
             ...prev,
             startDate: value,
             realized: 'nao',
-            lastCalibration: prev.previousLastCalibration !== undefined ? prev.previousLastCalibration : prev.lastCalibration,
-            status: prev.previousStatus !== undefined ? prev.previousStatus : prev.status,
           };
         }
         return { ...prev, startDate: value };
@@ -145,7 +151,6 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
       setFormData(prev => ({
         ...prev,
         endDate: value,
-        ...(prev.realized === 'sim' && value ? { lastCalibration: value, status: ServiceStatus.PREDICTED } : {})
       }));
       return;
     }
@@ -267,11 +272,25 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                   <label className={labelClass}>ÚLTIMA CALIBRAÇÃO</label>
                   <input
                     type="date"
-                    disabled={!canEdit}
-                    className={inputClass}
-                    value={formData.lastCalibration || ''}
-                    onChange={e => handleChange('lastCalibration', e.target.value)}
+                    disabled={!canEdit || !!previousStartDate}
+                    className={`${inputClass} ${previousStartDate ? 'bg-slate-100/80 text-slate-700 font-semibold cursor-not-allowed border-slate-300' : ''}`}
+                    value={previousStartDate || formData.lastCalibration || ''}
+                    onChange={e => {
+                      if (!previousStartDate) {
+                        handleChange('lastCalibration', e.target.value);
+                      }
+                    }}
+                    title={
+                      previousStartDate
+                        ? `Reflete a data de início da visita anterior do cliente (${isValid(parseISO(previousStartDate)) ? format(parseISO(previousStartDate), 'dd/MM/yyyy') : previousStartDate})`
+                        : 'Primeira visita do cliente: informe a última calibração manualmente'
+                    }
                   />
+                  {previousStartDate && (
+                    <span className="text-[10px] text-slate-500 font-medium mt-1 block">
+                      Reflete a visita anterior do cliente
+                    </span>
+                  )}
                 </div>
                 <div>
                   <label className={labelClass}>PRÓXIMA CALIBRAÇÃO</label>

@@ -26,7 +26,9 @@ import {
     recalculateFutureForecastsFromNewDate,
     filterServicesByPeriod,
     applyBatchServiceUpdates,
-    generateNextCalibrationService
+    generateNextCalibrationService,
+    getPreviousServiceStartDate,
+    syncServicesLastCalibration
 } from './utils';
 import {
     openExcelFile,
@@ -271,7 +273,7 @@ const App: React.FC = () => {
                     if (data) {
                         if (data.technicians.length > 0) setTechnicians(sortTechnicians(data.technicians));
                         if (data.clients.length > 0) setClients(data.clients);
-                        if (data.services.length > 0) setServices(data.services);
+                        if (data.services.length > 0) setServices(syncServicesLastCalibration(data.services));
 
                         if (data.users.length > 0) {
                             setUsers(data.users);
@@ -343,7 +345,7 @@ const App: React.FC = () => {
                     setClients(data.clients);
                 }
                 if (data.services.length > 0) {
-                    setServices(data.services);
+                    setServices(syncServicesLastCalibration(data.services));
                 }
 
                 // Carregar usuários ou criar admin padrão
@@ -610,21 +612,13 @@ const App: React.FC = () => {
             newServiceData.week = getISOWeek(parsedStart);
         }
 
-        // Auto-update Last Calibration if Confirmed and in Past
-        if (newServiceData.status === ServiceStatus.CONFIRMED) {
-            const end = parseISO(newServiceData.endDate);
-            const today = startOfDay(new Date());
-            if (isValid(end) && isBefore(end, today)) {
-                newServiceData.lastCalibration = newServiceData.endDate;
-            }
-        }
-
-        // Sincronização de Realizado com Últ. Cal. e Status
-        if (newServiceData.realized === 'sim') {
-            if (newServiceData.endDate) {
-                newServiceData.lastCalibration = newServiceData.endDate;
-            }
-            newServiceData.status = ServiceStatus.PREDICTED;
+        // A coluna Últ. Cal. reflete a última data de início anterior do mesmo cliente
+        const previousStartDate = getPreviousServiceStartDate(
+            { id: editingService ? editingService.id : 'temp-id', client: newServiceData.client, startDate: newServiceData.startDate },
+            services
+        );
+        if (previousStartDate) {
+            newServiceData.lastCalibration = previousStartDate;
         }
 
         let recurringForecasts: Service[] = [];
@@ -672,7 +666,7 @@ const App: React.FC = () => {
                 if (generatedCalService) {
                     result = [...result, generatedCalService];
                 }
-                return result;
+                return syncServicesLastCalibration(result);
             });
             setEditingService(null);
             if (generatedCalService) {
@@ -704,7 +698,7 @@ const App: React.FC = () => {
                 });
 
                 const updated = [...filtered, newService];
-                return recurringForecasts.length > 0 ? [...updated, ...recurringForecasts] : updated;
+                return syncServicesLastCalibration(recurringForecasts.length > 0 ? [...updated, ...recurringForecasts] : updated);
             });
             if (recurringForecasts.length > 0) {
                 showToast(`Calibração cadastrada e ${recurringForecasts.length} agendamento(s) futuro(s) projetado(s) até 36m!`);
@@ -791,81 +785,28 @@ const App: React.FC = () => {
                     return s; // Revert if date parsing fails
                 }
 
-                // Realizado = Sim: sincroniza Últ. Cal. com a coluna Fim e altera Status para 'Cliente Previsto'
-                if (field === 'realized') {
-                    if (value === 'sim') {
-                        updatedService.previousLastCalibration = s.lastCalibration || '';
-                        updatedService.lastCalibration = s.endDate;
-                        updatedService.previousStatus = s.status;
-                        updatedService.status = ServiceStatus.PREDICTED;
-                    } else if (value === 'nao') {
-                        if (s.previousLastCalibration !== undefined) {
-                            updatedService.lastCalibration = s.previousLastCalibration;
-                        }
-                        if (s.previousStatus !== undefined) {
-                            updatedService.status = s.previousStatus;
-                        }
-                    }
-                }
-
-                // Se alterar a data de Início e Realizado estiver como 'sim', reverte Realizado para 'nao',
-                // restaurando Últ. Calibração e Status anteriores
+                // Se alterar a data de Início e Realizado estiver como 'sim', reverte Realizado para 'nao'
                 if (field === 'startDate' && s.realized === 'sim' && value !== s.startDate) {
                     updatedService.realized = 'nao';
-                    if (s.previousLastCalibration !== undefined) {
-                        updatedService.lastCalibration = s.previousLastCalibration;
-                    }
-                    if (s.previousStatus !== undefined) {
-                        updatedService.status = s.previousStatus;
-                    }
-                }
-
-                // Se alterar a data de Fim e Realizado estiver como 'sim', atualiza também Últ. Cal. e Status
-                if (field === 'endDate' && updatedService.realized === 'sim' && updatedService.endDate) {
-                    updatedService.lastCalibration = updatedService.endDate;
-                    updatedService.status = ServiceStatus.PREDICTED;
-                }
-
-                // Se alterar a data de Próxima Calibração e Realizado estiver como 'sim', define Status como 'Cliente Previsto'
-                if (field === 'nextCalibration') {
-                    if (updatedService.realized === 'sim') {
-                        updatedService.status = ServiceStatus.PREDICTED;
-                    }
-                }
-
-                // Se alterar o período e Realizado estiver como 'sim', mantém/define Status como 'Cliente Previsto'
-                if (field === 'period' && updatedService.realized === 'sim') {
-                    updatedService.status = ServiceStatus.PREDICTED;
-                }
-
-                // Logic: If confirmed and end date is in the past, sync lastCalibration
-                if (updatedService.status === ServiceStatus.CONFIRMED) {
-                    // Check if the update was relevant to this rule (Status change or Date change)
-                    if (field === 'status' || field === 'endDate') {
-                        const end = parseISO(updatedService.endDate);
-                        const today = startOfDay(new Date());
-
-                        if (isValid(end) && isBefore(end, today)) {
-                            updatedService.lastCalibration = updatedService.endDate;
-                        }
-                    }
                 }
 
                 return updatedService;
             });
 
+            let syncedList = syncServicesLastCalibration(nextList);
+
             // Se alterou o status para "Cliente Confirmado", gera a nova atividade futura se houver próxima calibração
             if (field === 'status' && value === ServiceStatus.CONFIRMED) {
-                const targetService = nextList.find(s => s.id === id);
+                const targetService = syncedList.find(s => s.id === id);
                 if (targetService) {
-                    newlyGenerated = generateNextCalibrationService(targetService, nextList);
+                    newlyGenerated = generateNextCalibrationService(targetService, syncedList);
                     if (newlyGenerated) {
-                        return [...nextList, newlyGenerated];
+                        return syncServicesLastCalibration([...syncedList, newlyGenerated]);
                     }
                 }
             }
 
-            return nextList;
+            return syncedList;
         });
 
         if (newlyGenerated) {
@@ -878,7 +819,7 @@ const App: React.FC = () => {
 
     const deleteService = (id: string) => {
         recordSnapshot();
-        setServices(prev => prev.filter(s => s.id !== id));
+        setServices(prev => syncServicesLastCalibration(prev.filter(s => s.id !== id)));
         showToast('Atividade removida.');
     };
 
@@ -957,7 +898,7 @@ const App: React.FC = () => {
         }
 
         // Adiciona acumulando com os eventos existentes e ordena cronologicamente por Data de Início
-        setServices(prev => [...prev, ...forecasts].sort((a, b) => (a.startDate || '').localeCompare(b.startDate || '')));
+        setServices(prev => syncServicesLastCalibration([...prev, ...forecasts].sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''))));
         showToast(`${forecasts.length} visita(s) futura(s) de calibração gerada(s) a cada ${customPeriod}m até ${horizonMonths}m!`);
     };
 
@@ -1055,24 +996,17 @@ const App: React.FC = () => {
                         week: newWeek
                     };
 
-                    // Logic: If confirmed and moved to the past, sync lastCalibration
-                    if (updatedService.status === ServiceStatus.CONFIRMED) {
-                        const today = startOfDay(new Date());
-                        if (isValid(newEnd) && isBefore(newEnd, today)) {
-                            updatedService.lastCalibration = updatedService.endDate;
-                        }
-                    }
-
                     return updatedService;
                 });
 
                 const targetUpdated = updatedMoved.find(s => s.id === id);
                 if (targetUpdated && targetUpdated.period && targetUpdated.period > 0) {
                     // Reajusta em cascata todas as agendas futuras do cliente a partir da nova data
-                    return recalculateFutureForecastsFromNewDate(targetUpdated, updatedMoved, technicians);
+                    const recalculated = recalculateFutureForecastsFromNewDate(targetUpdated, updatedMoved, technicians);
+                    return syncServicesLastCalibration(recalculated);
                 }
 
-                return updatedMoved;
+                return syncServicesLastCalibration(updatedMoved);
             });
 
             if (periodCheck.isExceeded) {
@@ -1112,7 +1046,7 @@ const App: React.FC = () => {
         }
 
         recordSnapshot();
-        setServices(prev => prev.map(s => {
+        setServices(prev => syncServicesLastCalibration(prev.map(s => {
             if (s.id !== id) return s;
 
             const updatedService: Service = {
@@ -1122,16 +1056,8 @@ const App: React.FC = () => {
                 week: getISOWeek(newStart),
             };
 
-            // Logic: If confirmed and end date is in the past, sync lastCalibration
-            if (updatedService.status === ServiceStatus.CONFIRMED) {
-                const today = startOfDay(new Date());
-                if (isBefore(newEnd, today)) {
-                    updatedService.lastCalibration = newEndDate;
-                }
-            }
-
             return updatedService;
-        }));
+        })));
         showToast('Duração da atividade atualizada.');
     };
 
@@ -1148,6 +1074,11 @@ const App: React.FC = () => {
     const handleAddTechnician = (tech: Technician) => {
         recordSnapshot();
         setTechnicians(prev => sortTechnicians([...prev, tech]));
+    };
+
+    const handleUpdateTechnician = (id: string, data: Partial<Technician>) => {
+        recordSnapshot();
+        setTechnicians(prev => sortTechnicians(prev.map(t => t.id === id ? { ...t, ...data } : t)));
     };
 
     const handleDeleteTechnician = (id: string) => {
@@ -1299,6 +1230,7 @@ const App: React.FC = () => {
                 serviceToEdit={editingService}
                 onGenerateRecurrence={handleGenerateRecurrence}
                 canEdit={userCanEdit}
+                services={services}
             />
 
             <QuickAddModal
@@ -1313,6 +1245,7 @@ const App: React.FC = () => {
                 onClose={() => setIsTechModalOpen(false)}
                 technicians={technicians}
                 onAdd={handleAddTechnician}
+                onUpdate={handleUpdateTechnician}
                 onDelete={handleDeleteTechnician}
             />
 

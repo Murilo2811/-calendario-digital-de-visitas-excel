@@ -315,8 +315,8 @@ export const createRecurringCalibrationForecasts = (
       technicianIds: chosenTechIds,
       status: ServiceStatus.PREDICTED,
       period,
-      // Ciclo 1 = término da âncora; Ciclo N = término da âncora + (N-1) períodos
-      lastCalibration: format(addMonths(anchorEnd, months - period), 'yyyy-MM-dd'),
+      // A última calibração reflete a data de início da visita imediatamente anterior no ciclo
+      lastCalibration: format(currentRefStart, 'yyyy-MM-dd'),
       nextCalibration: format(addMonths(cycleStart, period), 'yyyy-MM-dd'),
       comments: baseService.comments || baseAnchor.comments || '',
       realized: 'nao'
@@ -613,41 +613,14 @@ export const applyBatchServiceUpdates = (
 
     let updatedService = { ...s };
 
-    // 1. Processar 'realized'
+    // 1. Processar 'realized' (Status e Últ. Cal. permanecem independentes)
     if (updates.realized) {
-      if (updates.realized === 'sim') {
-        updatedService.realized = 'sim';
-        updatedService.previousLastCalibration = s.lastCalibration || '';
-        if (s.endDate) {
-          updatedService.lastCalibration = s.endDate;
-        }
-        // Se não houver status explícito escolhido na barra, aplica a regra padrão:
-        // salva status anterior e muda para Cliente Previsto
-        if (!updates.status) {
-          updatedService.previousStatus = s.status;
-          updatedService.status = ServiceStatus.PREDICTED;
-        }
-      } else if (updates.realized === 'nao') {
-        updatedService.realized = 'nao';
-        if (s.previousLastCalibration !== undefined) {
-          updatedService.lastCalibration = s.previousLastCalibration;
-        }
-        // Se não houver status explícito, restaura status anterior se existir
-        if (!updates.status && s.previousStatus !== undefined) {
-          updatedService.status = s.previousStatus;
-        }
-      }
+      updatedService.realized = updates.realized;
     }
 
-    // 2. Processar 'status' explícito (prevalece sobre status padrão de Realizado)
+    // 2. Processar 'status' explícito
     if (updates.status) {
       updatedService.status = updates.status;
-      if (updates.status === ServiceStatus.CONFIRMED) {
-        const end = parseISO(updatedService.endDate);
-        if (isValid(end) && isBefore(end, today)) {
-          updatedService.lastCalibration = updatedService.endDate;
-        }
-      }
     }
 
     return updatedService;
@@ -655,6 +628,7 @@ export const applyBatchServiceUpdates = (
 
   // Se o status alterado em lote for CONFIRMED ("Cliente Confirmado"),
   // gera a nova atividade futura para cada atividade que possuir próxima calibração válida.
+  let finalServices = updatedList;
   if (updates.status === ServiceStatus.CONFIRMED) {
     const newlyCreated: Service[] = [];
     for (const s of updatedList) {
@@ -665,10 +639,12 @@ export const applyBatchServiceUpdates = (
         }
       }
     }
-    return newlyCreated.length > 0 ? [...updatedList, ...newlyCreated] : updatedList;
+    if (newlyCreated.length > 0) {
+      finalServices = [...updatedList, ...newlyCreated];
+    }
   }
 
-  return updatedList;
+  return syncServicesLastCalibration(finalServices);
 };
 
 /**
@@ -824,11 +800,65 @@ export function generateNextCalibrationService(
     technicianIds: currentService.technicianIds ? [...currentService.technicianIds] : [],
     status: ServiceStatus.PREDICTED,
     period,
-    lastCalibration: currentService.endDate || currentService.startDate || '',
+    lastCalibration: currentService.startDate || currentService.endDate || '',
     nextCalibration: futureNextCal,
     comments: currentService.comments || '',
     realized: 'nao'
   };
 
   return newService;
-}
+};
+
+/**
+ * Retorna a Data de Início (startDate) da visita imediatamente anterior cadastrada para o mesmo cliente,
+ * ou null caso seja a primeira visita do cliente no calendário.
+ */
+export const getPreviousServiceStartDate = (
+  service: Pick<Service, 'id' | 'client' | 'startDate'>,
+  allServices: Service[]
+): string | null => {
+  if (!service.client || !service.startDate) return null;
+  const clientNorm = service.client.trim().toLowerCase();
+  if (!clientNorm) return null;
+
+  const currentStart = parseISO(service.startDate);
+  if (!isValid(currentStart)) return null;
+
+  const previousServices = allServices.filter(s => {
+    if (s.id === service.id) return false;
+    if ((s.client || '').trim().toLowerCase() !== clientNorm) return false;
+    if (!s.startDate) return false;
+    const start = parseISO(s.startDate);
+    if (!isValid(start)) return false;
+    return isBefore(start, currentStart);
+  });
+
+  if (previousServices.length === 0) return null;
+
+  // Ordena decrescente pela data de início para obter a visita mais recente anterior
+  previousServices.sort((a, b) => {
+    const timeDiff = parseISO(b.startDate).getTime() - parseISO(a.startDate).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return (b.endDate || '').localeCompare(a.endDate || '');
+  });
+
+  return previousServices[0].startDate;
+};
+
+/**
+ * Sincroniza a propriedade lastCalibration de todos os serviços de uma lista,
+ * refletindo a última data de início anterior do mesmo cliente para serviços que possuem histórico anterior,
+ * e preservando o valor existente (manual/importado) para o primeiro serviço de cada cliente.
+ */
+export const syncServicesLastCalibration = (services: Service[]): Service[] => {
+  return services.map(s => {
+    const prevStartDate = getPreviousServiceStartDate(s, services);
+    if (prevStartDate) {
+      if (s.lastCalibration !== prevStartDate) {
+        return { ...s, lastCalibration: prevStartDate };
+      }
+      return s;
+    }
+    return s;
+  });
+};
