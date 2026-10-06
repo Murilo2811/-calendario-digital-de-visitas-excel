@@ -1,5 +1,7 @@
 import fs from 'node:fs';
+import path from 'node:path';
 
-if (fs.existsSync('dist')) {
-  fs.rmSync('dist', { recursive: true, force: true });
+const distPath = path.resolve('dist');
+if (fs.existsSync(distPath)) {
+  fs.rmSync(distPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }

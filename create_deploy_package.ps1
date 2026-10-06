@@ -5,11 +5,11 @@ $sourceDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Write-Host "Criando pasta de producao em: $targetDir" -ForegroundColor Cyan
 
 # Cria ou limpa pasta de destino de forma segura
-if (-not (Test-Path $targetDir)) {
-    New-Item -Path $targetDir -ItemType Directory -Force | Out-Null
-} else {
-    Get-ChildItem -Path $targetDir | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+if (Test-Path $targetDir) {
+    Remove-Item -Path $targetDir -Recurse -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 300
 }
+New-Item -Path $targetDir -ItemType Directory -Force | Out-Null
 
 # 1. Copia pasta dist/
 $distSource = Join-Path $sourceDir "dist"
