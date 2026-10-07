@@ -28,7 +28,8 @@ import {
     applyBatchServiceUpdates,
     generateNextCalibrationService,
     getPreviousServiceStartDate,
-    syncServicesLastCalibration
+    syncServicesLastCalibration,
+    cleanObsoleteCalibrationForecasts
 } from './utils';
 import {
     openExcelFile,
@@ -273,7 +274,7 @@ const App: React.FC = () => {
                     if (data) {
                         if (data.technicians.length > 0) setTechnicians(sortTechnicians(data.technicians));
                         if (data.clients.length > 0) setClients(data.clients);
-                        if (data.services.length > 0) setServices(syncServicesLastCalibration(data.services));
+                        if (data.services.length > 0) setServices(syncServicesLastCalibration(cleanObsoleteCalibrationForecasts(data.services)));
 
                         if (data.users.length > 0) {
                             setUsers(data.users);
@@ -345,7 +346,7 @@ const App: React.FC = () => {
                     setClients(data.clients);
                 }
                 if (data.services.length > 0) {
-                    setServices(syncServicesLastCalibration(data.services));
+                    setServices(syncServicesLastCalibration(cleanObsoleteCalibrationForecasts(data.services)));
                 }
 
                 // Carregar usuários ou criar admin padrão
@@ -623,17 +624,20 @@ const App: React.FC = () => {
 
         let recurringForecasts: Service[] = [];
 
-        // Se possuir periodicidade de calibração definida (> 0), gera os agendamentos recorrentes automáticos (até 36 meses)
+        // Se possuir periodicidade de calibração definida (> 0), gera os agendamentos recorrentes automáticos (padrão 6m, ou 12m se período for 12m)
         if (newServiceData.period && newServiceData.period > 0) {
             const tempBaseService: Service = {
                 ...newServiceData,
                 id: editingService ? editingService.id : 'temp-id'
             };
+            const safePeriod = Math.min(newServiceData.period, 12);
+            const safeHorizon = safePeriod > 6 ? 12 : 6;
             recurringForecasts = createRecurringCalibrationForecasts(
                 tempBaseService,
                 technicians,
                 services,
-                36 // Limite de 36 meses (3 anos)
+                safeHorizon,
+                safePeriod
             );
         }
 
@@ -655,7 +659,7 @@ const App: React.FC = () => {
                         clientNameNormalized &&
                         (s.client || '').trim().toLowerCase() === clientNameNormalized &&
                         s.status === ServiceStatus.PREDICTED &&
-                        s.description.includes('Calibração Prevista')) {
+                        (s.description.includes('Calibração Prevista') || s.id.startsWith('svc-forecast-'))) {
                         return false; // Substitui pela nova série projetada
                     }
                     return true;
@@ -675,7 +679,7 @@ const App: React.FC = () => {
                     : generatedCalService.startDate;
                 showToast(`Atividade confirmada! Nova calibração futura gerada para ${dateFmt}.`);
             } else if (recurringForecasts.length > 0) {
-                showToast(`Calibração atualizada e ${recurringForecasts.length} agendamento(s) futuro(s) projetado(s) até 36m!`);
+                showToast(`Calibração atualizada e ${recurringForecasts.length} agendamento(s) futuro(s) projetado(s)!`);
             } else {
                 showToast('Atividade atualizada com sucesso!');
             }
@@ -691,7 +695,7 @@ const App: React.FC = () => {
                         clientNameNormalized &&
                         (s.client || '').trim().toLowerCase() === clientNameNormalized &&
                         s.status === ServiceStatus.PREDICTED &&
-                        s.description.includes('Calibração Prevista')) {
+                        (s.description.includes('Calibração Prevista') || s.id.startsWith('svc-forecast-'))) {
                         return false;
                     }
                     return true;
@@ -701,7 +705,7 @@ const App: React.FC = () => {
                 return syncServicesLastCalibration(recurringForecasts.length > 0 ? [...updated, ...recurringForecasts] : updated);
             });
             if (recurringForecasts.length > 0) {
-                showToast(`Calibração cadastrada e ${recurringForecasts.length} agendamento(s) futuro(s) projetado(s) até 36m!`);
+                showToast(`Calibração cadastrada e ${recurringForecasts.length} agendamento(s) futuro(s) projetado(s)!`);
             } else {
                 showToast('Atividade criada com sucesso!');
             }
@@ -884,12 +888,15 @@ const App: React.FC = () => {
     const handleConfirmRecurrence = (baseService: Service, customPeriod: number, horizonMonths: number) => {
         recordSnapshot();
 
+        const safePeriod = Math.min(customPeriod, 12);
+        const safeHorizon = safePeriod > 6 ? 12 : Math.min(horizonMonths, 12);
+
         const forecasts = createRecurringCalibrationForecasts(
             baseService,
             technicians,
             services,
-            horizonMonths,
-            customPeriod
+            safeHorizon,
+            safePeriod
         );
 
         if (forecasts.length === 0) {
@@ -897,9 +904,24 @@ const App: React.FC = () => {
             return;
         }
 
-        // Adiciona acumulando com os eventos existentes e ordena cronologicamente por Data de Início
-        setServices(prev => syncServicesLastCalibration([...prev, ...forecasts].sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''))));
-        showToast(`${forecasts.length} visita(s) futura(s) de calibração gerada(s) a cada ${customPeriod}m até ${horizonMonths}m!`);
+        const clientNorm = (baseService.client || '').trim().toLowerCase();
+
+        // Substitui previsões automáticas futuras anteriores desse cliente a partir da data base
+        setServices(prev => {
+            const filtered = prev.filter(s => {
+                const sClientNorm = (s.client || '').trim().toLowerCase();
+                const isAutoForecast = s.status === ServiceStatus.PREDICTED &&
+                    ((s.description || '').includes('Calibração Prevista') || s.id.startsWith('svc-forecast-'));
+                if (sClientNorm === clientNorm && isAutoForecast && s.startDate > baseService.startDate) {
+                    return false;
+                }
+                return true;
+            });
+
+            return syncServicesLastCalibration([...filtered, ...forecasts].sort((a, b) => (a.startDate || '').localeCompare(b.startDate || '')));
+        });
+
+        showToast(`${forecasts.length} visita(s) futura(s) de calibração gerada(s) a cada ${safePeriod}m até ${safeHorizon}m!`);
     };
 
     const handleServiceMove = (id: string, newStartDate: string, newTechId: string, oldTechId: string) => {

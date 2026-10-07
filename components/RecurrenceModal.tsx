@@ -16,8 +16,8 @@ interface RecurrenceModalProps {
     onConfirm: (service: Service, period: number, horizonMonths: number) => void;
 }
 
-const COMMON_PERIODS = [3, 6, 12, 24, 36];
-const COMMON_HORIZONS = [12, 24, 36, 48];
+const COMMON_PERIODS = [6, 12];
+const COMMON_HORIZONS = [6, 12];
 
 export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
     isOpen,
@@ -28,15 +28,25 @@ export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
     onConfirm,
 }) => {
     const [period, setPeriod] = useState<number>(6);
-    const [horizonMonths, setHorizonMonths] = useState<number>(36);
+    const [horizonMonths, setHorizonMonths] = useState<number>(6);
 
     // Inicializa valores ao abrir o modal com base no serviço selecionado
     useEffect(() => {
         if (service) {
-            setPeriod(service.period && service.period > 0 ? service.period : 6);
-            setHorizonMonths(36);
+            const rawPeriod = service.period && service.period > 0 ? service.period : 6;
+            const validPeriod = Math.min(Math.max(1, rawPeriod), 12);
+            setPeriod(validPeriod);
+            setHorizonMonths(validPeriod > 6 ? 12 : 6);
         }
     }, [service, isOpen]);
+
+    const handlePeriodChange = (newPeriod: number) => {
+        const clamped = Math.min(Math.max(1, newPeriod), 12);
+        setPeriod(clamped);
+        if (clamped > 6 && horizonMonths < 12) {
+            setHorizonMonths(12);
+        }
+    };
 
     // Fechar ao teclar Esc
     useEffect(() => {
@@ -126,12 +136,12 @@ export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
                             </div>
 
                             {/* Botões rápidos de período */}
-                            <div className="grid grid-cols-5 gap-1.5">
+                            <div className="grid grid-cols-2 gap-2">
                                 {COMMON_PERIODS.map((p) => (
                                     <button
                                         key={p}
                                         type="button"
-                                        onClick={() => setPeriod(p)}
+                                        onClick={() => handlePeriodChange(p)}
                                         className={`py-1.5 text-xs font-bold rounded-lg transition-all border ${
                                             period === p
                                                 ? 'bg-abb-red text-white border-abb-red shadow-sm'
@@ -149,12 +159,12 @@ export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
                                 <input
                                     type="number"
                                     min="1"
-                                    max="60"
+                                    max="12"
                                     value={period || ''}
-                                    onChange={(e) => setPeriod(Math.max(1, parseInt(e.target.value) || 1))}
+                                    onChange={(e) => handlePeriodChange(parseInt(e.target.value) || 1)}
                                     className="w-20 px-2 py-1 text-xs text-center font-bold bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red outline-none"
                                 />
-                                <span className="text-xs text-slate-500">meses</span>
+                                <span className="text-xs text-slate-500">meses (máx: 12)</span>
                             </div>
                         </div>
 
@@ -171,21 +181,28 @@ export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
                             </div>
 
                             {/* Botões rápidos de horizonte */}
-                            <div className="grid grid-cols-4 gap-1.5">
-                                {COMMON_HORIZONS.map((h) => (
-                                    <button
-                                        key={h}
-                                        type="button"
-                                        onClick={() => setHorizonMonths(h)}
-                                        className={`py-1.5 text-xs font-bold rounded-lg transition-all border ${
-                                            horizonMonths === h
-                                                ? 'bg-slate-800 text-white border-slate-800 shadow-sm'
-                                                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                                        }`}
-                                    >
-                                        {h}m ({h / 12}a)
-                                    </button>
-                                ))}
+                            <div className="grid grid-cols-2 gap-2">
+                                {COMMON_HORIZONS.map((h) => {
+                                    const isDisabled = period > 6 && h < 12;
+                                    return (
+                                        <button
+                                            key={h}
+                                            type="button"
+                                            disabled={isDisabled}
+                                            onClick={() => setHorizonMonths(h)}
+                                            className={`py-1.5 text-xs font-bold rounded-lg transition-all border ${
+                                                isDisabled
+                                                    ? 'bg-slate-100 text-slate-300 border-slate-200 cursor-not-allowed'
+                                                    : horizonMonths === h
+                                                    ? 'bg-slate-800 text-white border-slate-800 shadow-sm'
+                                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                                            }`}
+                                            title={isDisabled ? 'Para periodicidade de 12m, o horizonte mínimo é 12m' : undefined}
+                                        >
+                                            {h === 12 ? '12m (1a)' : `${h}m`}
+                                        </button>
+                                    );
+                                })}
                             </div>
 
                             {/* Input manual de horizonte */}
@@ -193,13 +210,17 @@ export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
                                 <span className="text-[11px] text-slate-500 font-medium">Personalizado:</span>
                                 <input
                                     type="number"
-                                    min={period}
-                                    max="120"
+                                    min={period > 6 ? 12 : 6}
+                                    max="12"
                                     value={horizonMonths || ''}
-                                    onChange={(e) => setHorizonMonths(Math.max(1, parseInt(e.target.value) || 1))}
+                                    onChange={(e) => {
+                                        const minAllowed = period > 6 ? 12 : 6;
+                                        const raw = parseInt(e.target.value) || minAllowed;
+                                        setHorizonMonths(Math.min(12, Math.max(minAllowed, raw)));
+                                    }}
                                     className="w-20 px-2 py-1 text-xs text-center font-bold bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-abb-red/20 focus:border-abb-red outline-none"
                                 />
-                                <span className="text-xs text-slate-500">meses à frente</span>
+                                <span className="text-xs text-slate-500">meses (6 ou 12m)</span>
                             </div>
                         </div>
                     </div>

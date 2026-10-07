@@ -30,20 +30,25 @@ const base = (over: Partial<Service> = {}): Service => ({
   ...over,
 });
 
-test('projeta um ciclo a cada `period` meses até 36m com ajuste de fim de semana para segunda-feira', () => {
-  const forecasts = createRecurringCalibrationForecasts(base(), techs, []);
+test('projeta um ciclo a cada `period` meses com ajuste de fim de semana para segunda-feira', () => {
+  // Padrão maxMonths = 6m com period = 6 gera 1 ciclo
+  const forecasts6m = createRecurringCalibrationForecasts(base(), techs, []);
+  assert.equal(forecasts6m.length, 1, 'period=6 cabe 1 vez no horizonte padrão de 6 meses');
+  assert.equal(forecasts6m[0].startDate, '2026-07-06');
+  assert.equal(forecasts6m[0].status, ServiceStatus.PREDICTED);
 
-  assert.equal(forecasts.length, 6, 'period=6 cabe 6 vezes em 36 meses');
+  // Horizonte maxMonths = 12m com period = 6 gera 2 ciclos
+  const forecasts12m = createRecurringCalibrationForecasts(base(), techs, [], 12);
+  assert.equal(forecasts12m.length, 2, 'period=6 cabe 2 vezes em 12 meses');
   assert.deepEqual(
-    forecasts.map(f => f.startDate),
-    ['2026-07-06', '2027-01-06', '2027-07-06', '2028-01-06', '2028-07-06', '2029-01-08'],
+    forecasts12m.map(f => f.startDate),
+    ['2026-07-06', '2027-01-06']
   );
-  assert.ok(forecasts.every(f => f.status === ServiceStatus.PREDICTED));
 });
 
-test('period=12 gera 3 ciclos; period=0 nao gera nada', () => {
-  assert.equal(createRecurringCalibrationForecasts(base({ period: 12 }), techs, []).length, 3);
-  assert.equal(createRecurringCalibrationForecasts(base({ period: 0 }), techs, []).length, 0);
+test('period=12 gera 1 ciclo em horizonte de 12m; period=0 nao gera nada', () => {
+  assert.equal(createRecurringCalibrationForecasts(base({ period: 12 }), techs, [], 12).length, 1);
+  assert.equal(createRecurringCalibrationForecasts(base({ period: 0 }), techs, [], 12).length, 0);
 });
 
 test('preserva a duracao da visita base em cada projecao', () => {
@@ -419,7 +424,7 @@ test('recorrência: cadastro deve ter início e fim seguindo a premissa da colun
   }
 });
 
-test('recorrência: identifica o último período cadastrado do cliente como âncora cronológica', () => {
+test('recorrência: parte estritamente da data de início da visita base selecionada', () => {
   const clienteX = 'KLABIN - O. Costa';
   const visitaJaneiro = base({
     id: 'svc-jan',
@@ -439,28 +444,23 @@ test('recorrência: identifica o último período cadastrado do cliente como ân
     realized: 'sim',
   });
 
-  // existingServices contém tanto a visita de janeiro quanto a visita mais recente de dezembro
+  // existingServices contém tanto a visita de janeiro quanto a visita de dezembro
   const existingServices = [visitaJaneiro, visitaDezembro];
 
-  // Dispara a recorrência clicando na visita de JANEIRO
-  const forecasts = createRecurringCalibrationForecasts(visitaJaneiro, techs, existingServices, 36);
+  // Dispara a recorrência clicando na visita de JANEIRO com horizonte de 12 meses
+  const forecasts = createRecurringCalibrationForecasts(visitaJaneiro, techs, existingServices, 12);
 
-  assert.ok(forecasts.length > 0, 'Deve gerar previsões');
+  assert.equal(forecasts.length, 2, 'Deve gerar 2 previsões em 12 meses para periodicidade de 6m');
 
-  // O 1º ciclo gerado DEVE partir cronologicamente após a visita de DEZEMBRO (e não após janeiro!)
+  // O 1º ciclo gerado DEVE partir da visita de JANEIRO selecionada (+6m = 27/07/2026)
   const primeiroCiclo = forecasts[0];
-  assert.ok(
-    primeiroCiclo.startDate > '2026-12-11',
-    `O primeiro ciclo (${primeiroCiclo.startDate}) deve ser cronologicamente posterior à última visita cadastrada do cliente (2026-12-11)`
-  );
-  // Dezembro/2026 + 6m = Junho/2027
-  assert.equal(primeiroCiclo.startDate, '2027-06-07', 'Início deve ser 07/06/2027');
-  assert.equal(primeiroCiclo.endDate, '2027-06-11', 'Fim deve ser 11/06/2027 (5 dias)');
-  assert.equal(primeiroCiclo.lastCalibration, '2026-12-07', 'Ciclo 1: última calibração = início da âncora');
-  assert.equal(forecasts[1].lastCalibration, '2027-06-07', 'Ciclo 2: última calibração = início da âncora + período');
-  assert.equal(forecasts[2].lastCalibration, '2027-12-07', 'Ciclo 3: última calibração = início da âncora + 2x período');
+  assert.equal(primeiroCiclo.startDate, '2026-07-27', 'Início deve ser 27/07/2026');
+  assert.equal(primeiroCiclo.endDate, '2026-07-31', 'Fim deve ser 31/07/2026 (5 dias)');
+  assert.equal(primeiroCiclo.lastCalibration, '2026-01-26', 'Ciclo 1: última calibração = início da visita base');
+  assert.equal(forecasts[1].startDate, '2027-01-27', 'Ciclo 2: início deve ser 27/01/2027');
+  assert.equal(forecasts[1].lastCalibration, '2026-07-27', 'Ciclo 2: última calibração = início do ciclo anterior');
 
-  // Todos os ciclos gerados devem seguir ordem estritamente cronológica (início < fim e ciclo[i] > ciclo[i-1])
+  // Todos os ciclos gerados devem seguir ordem estritamente cronológica
   for (let i = 0; i < forecasts.length; i++) {
     const f = forecasts[i];
     assert.ok(f.startDate < f.endDate, `Ciclo ${i + 1}: Data início (${f.startDate}) deve ser anterior à data fim (${f.endDate})`);

@@ -238,47 +238,38 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
 const adjustToNextMondayIfWeekend = (date: Date): Date => (isWeekend(date) ? nextMonday(date) : date);
 
 /**
- * Creates multiple recurring calibration forecast services up to a max horizon (default: 36 months / 3 years).
- * - Identifies the most recent existing visit/period registered for the client to serve as the chronological starting anchor.
- * - Ensures strict chronological sequence: start date < end date for every cycle, preserving duration.
- * - If calculated dates fall on a weekend, adjusts them to start on Monday.
- * - Each subsequent cycle chains from the previous cycle and its last calibration date.
+ * Cria múltiplos serviços de previsão de calibração recorrentes até um horizonte máximo (padrão: 6 meses, máximo: 12 meses).
+ * - A recorrência parte estritamente da data de início (startDate) da atividade base selecionada.
+ * - Garante sequência cronológica: início < término para cada ciclo, preservando a duração em dias da atividade original.
+ * - Se a data calculada cair em sábado ou domingo, ajusta o início para a segunda-feira seguinte.
+ * - Periodicidade máxima de 12 meses.
+ * - Cada ciclo subsequente encadeia a partir do ciclo anterior.
  */
 export const createRecurringCalibrationForecasts = (
   baseService: Service,
   technicians: Technician[],
   existingServices: Service[],
-  maxMonths: number = 36,
+  maxMonths: number = 6,
   overridePeriod?: number
 ): Service[] => {
-  const period = (overridePeriod && overridePeriod > 0) ? overridePeriod : baseService.period;
-  if (!period || period <= 0) return [];
+  const rawPeriod = (overridePeriod && overridePeriod > 0) ? overridePeriod : baseService.period;
+  if (!rawPeriod || rawPeriod <= 0) return [];
+  // Periodicidade máxima de 12 meses
+  const period = Math.min(rawPeriod, 12);
 
-  const clientNameNormalized = (baseService.client || '').trim().toLowerCase();
-
-  // Âncora cronológica: a visita do cliente mais avançada no tempo (a base, se nenhuma for posterior)
-  const anchorKey = (s: Service) => (s.endDate || s.startDate || '').trim();
-  const baseAnchor = existingServices.reduce((latest, s) => {
-    if (!s.client || s.client.trim().toLowerCase() !== clientNameNormalized) return latest;
-    if (!s.startDate || !isValid(parseISO(s.startDate))) return latest;
-    return anchorKey(s) > anchorKey(latest) ? s : latest;
-  }, baseService);
-
-  const anchorStart = parseISO(baseAnchor.startDate);
-  const anchorEnd = parseISO(baseAnchor.endDate || baseAnchor.startDate);
-  if (!isValid(anchorStart) || !isValid(anchorEnd)) return [];
-
-  // Duração em dias da visita base original (preservada em todos os ciclos, mínimo 1 dia)
   const baseStart = parseISO(baseService.startDate);
   const baseEnd = parseISO(baseService.endDate || baseService.startDate);
-  const duration = (isValid(baseStart) && isValid(baseEnd))
+  if (!isValid(baseStart)) return [];
+
+  // Duração em dias da visita base original (preservada em todos os ciclos, mínimo 1 dia)
+  const duration = isValid(baseEnd)
     ? Math.max(1, differenceInDays(baseEnd, baseStart) + 1)
-    : Math.max(1, differenceInDays(anchorEnd, anchorStart) + 1);
+    : 1;
 
   const forecasts: Service[] = [];
-  const preferredTechId = baseService.technicianIds?.[0] || baseAnchor.technicianIds?.[0];
+  const preferredTechId = baseService.technicianIds?.[0];
 
-  let currentRefStart = anchorStart;
+  let currentRefStart = baseStart;
 
   for (let months = period; months <= maxMonths; months += period) {
     // Projeta o início somando o período e joga para segunda-feira se cair no fim de semana
@@ -304,9 +295,9 @@ export const createRecurringCalibrationForecasts = (
       id: `svc-forecast-${Date.now()}-${cycle}-${Math.random().toString(36).substr(2, 5)}`,
       week,
       client: baseService.client,
-      manager: baseService.manager || baseAnchor.manager || '',
+      manager: baseService.manager || '',
       os: '', // Em branco para preenchimento futuro
-      description: `Calibração Prevista (+${months}m - Ciclo ${cycle}) - Ref. OS ${baseService.os || baseAnchor.os || 'Base'}`,
+      description: `Calibração Prevista (+${months}m - Ciclo ${cycle}) - Ref. OS ${baseService.os || 'Base'}`,
       hp: baseService.hp || 0,
       ht: baseService.ht || 0,
       hv: baseService.hv || 0,
@@ -318,7 +309,7 @@ export const createRecurringCalibrationForecasts = (
       // A última calibração reflete a data de início da visita imediatamente anterior no ciclo
       lastCalibration: format(currentRefStart, 'yyyy-MM-dd'),
       nextCalibration: format(addMonths(cycleStart, period), 'yyyy-MM-dd'),
-      comments: baseService.comments || baseAnchor.comments || '',
+      comments: baseService.comments || '',
       realized: 'nao'
     });
 
@@ -377,18 +368,20 @@ export const recalculateFutureForecastsFromNewDate = (
   updatedService: Service,
   allServices: Service[],
   technicians: Technician[],
-  maxMonths: number = 36
+  maxMonths: number = 6
 ): Service[] => {
   if (!updatedService.period || updatedService.period <= 0) return allServices;
 
   const clientNameNormalized = updatedService.client.trim().toLowerCase();
+  const safePeriod = Math.min(updatedService.period, 12);
+  const safeHorizon = safePeriod > 6 ? 12 : Math.min(maxMonths, 12);
 
   // 1. Remove previsões automáticas futuras desse cliente
   const filtered = allServices.filter(s => {
     if (s.id === updatedService.id) return true; // Mantém o próprio serviço
     if (s.client.trim().toLowerCase() === clientNameNormalized &&
         s.status === ServiceStatus.PREDICTED &&
-        s.description.includes('Calibração Prevista')) {
+        (s.description.includes('Calibração Prevista') || s.id.startsWith('svc-forecast-'))) {
       return false; // Remove para recalcular
     }
     return true;
@@ -399,7 +392,8 @@ export const recalculateFutureForecastsFromNewDate = (
     updatedService,
     technicians,
     filtered,
-    maxMonths
+    safeHorizon,
+    safePeriod
   );
 
   return [...filtered, ...newForecasts];
@@ -860,5 +854,19 @@ export const syncServicesLastCalibration = (services: Service[]): Service[] => {
       return s;
     }
     return s;
+  });
+};
+
+/**
+ * Remove previsões automáticas obsoletas ou de anos muito distantes (ex: 2028-2030) geradas em testes antigos.
+ */
+export const cleanObsoleteCalibrationForecasts = (services: Service[]): Service[] => {
+  return services.filter(s => {
+    const isAutoForecast = s.status === ServiceStatus.PREDICTED &&
+      ((s.description || '').includes('Calibração Prevista') || s.id.startsWith('svc-forecast-'));
+    if (isAutoForecast && s.startDate && s.startDate >= '2028-01-01') {
+      return false;
+    }
+    return true;
   });
 };
