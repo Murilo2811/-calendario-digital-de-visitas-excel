@@ -138,31 +138,37 @@ export const getCalibrationStatus = (
 
   const isEndDateInFutureOrToday = endDateObj ? endDateObj >= today : false;
 
-  // 1. Obter a data base da calibração anterior (para verificar se o início atual respeita o ciclo anterior)
-  // Regra alinhada: Se uma atividade não apresentar uma atividade com data anterior no calendário,
-  // essa atividade atual NÃO deve aparecer como calibração vencida.
-  let prevCalDateStr: string | null = null;
+  // 1. Obter a atividade anterior no calendário para avaliar a janela de periodicidade
+  // Regra alinhada: Para ser considerada vencida, o início base deve começar depois do fim da última atividade + período + 1 dia.
+  // Se a atividade não apresentar uma atividade anterior no calendário, ela NÃO deve nascer como calibração vencida.
   let hasPreviousService = false;
+  let prevLimitBaseDateStr: string | null = null;
 
   if (allServices && allServices.length > 0) {
-    prevCalDateStr = getPreviousServiceStartDate(service, allServices);
-    hasPreviousService = prevCalDateStr !== null;
+    const prevService = getPreviousService(service, allServices);
+    if (prevService) {
+      hasPreviousService = true;
+      // Prazo tolerado conta a partir do FIM da última atividade (ou início como fallback)
+      prevLimitBaseDateStr = (prevService.endDate && isValid(parseISO(prevService.endDate)))
+        ? prevService.endDate
+        : prevService.startDate;
+    }
   } else if (service.lastCalibration && isValid(parseISO(service.lastCalibration))) {
     // Fallback apenas quando allServices não for fornecido (ex: testes unitários isolados)
-    prevCalDateStr = service.lastCalibration;
+    prevLimitBaseDateStr = service.lastCalibration;
     hasPreviousService = true;
   }
 
-  // Se houver atividade anterior e periodicidade, calcular o prazo limite e verificar se o início base começou depois do limite (+1 dia)
+  // Se houver atividade anterior e periodicidade, calcular o prazo limite baseado no FIM da anterior
   let isStartOverdue = false;
   let delayDays = 0;
   let limitDateText = '';
   let limitDate: Date | null = null;
 
-  if (hasPreviousService && service.period && service.period > 0 && prevCalDateStr && isValid(parseISO(prevCalDateStr)) && startDateObj) {
-    limitDate = startOfDay(addMonths(parseISO(prevCalDateStr), service.period));
+  if (hasPreviousService && service.period && service.period > 0 && prevLimitBaseDateStr && isValid(parseISO(prevLimitBaseDateStr)) && startDateObj) {
+    limitDate = startOfDay(addMonths(parseISO(prevLimitBaseDateStr), service.period));
     delayDays = differenceInDays(startDateObj, limitDate);
-    // Para ser considerada vencida, o início base deve começar depois da data da última calibração + período + 1 dia (delayDays > 0)
+    // Para ser considerada vencida, o início base deve começar depois do fim da última atividade + período + 1 dia (delayDays > 0)
     isStartOverdue = delayDays > 0;
     limitDateText = format(limitDate, 'dd/MM/yyyy', { locale: ptBR });
   }
@@ -420,12 +426,14 @@ export const checkPeriodExceeded = (
 
   // Se allServices for fornecido, verifica se há atividade anterior do mesmo cliente
   if (allServices && allServices.length > 0) {
-    const prev = getPreviousServiceStartDate(service, allServices);
+    const prev = getPreviousService(service, allServices);
     // Se NÃO apresentar uma atividade anterior no calendário, a atividade atual não deve acusar prazo excedido
     if (!prev) {
       return NO_DEADLINE;
     }
-    const baseDate = parseISO(prev);
+    // Prazo tolerado conta a partir do FIM da atividade anterior (ou início como fallback)
+    const baseDateStr = (prev.endDate && isValid(parseISO(prev.endDate))) ? prev.endDate : prev.startDate;
+    const baseDate = parseISO(baseDateStr);
     if (!isValid(baseDate)) return NO_DEADLINE;
 
     const limitDate = addMonths(baseDate, period);
@@ -901,13 +909,13 @@ export function generateNextCalibrationService(
 };
 
 /**
- * Retorna a Data de Início (startDate) da visita imediatamente anterior cadastrada para o mesmo cliente,
+ * Retorna o serviço imediatamente anterior cadastrado para o mesmo cliente,
  * ou null caso seja a primeira visita do cliente no calendário.
  */
-export const getPreviousServiceStartDate = (
+export const getPreviousService = (
   service: Pick<Service, 'id' | 'client' | 'startDate'>,
   allServices: Service[]
-): string | null => {
+): Service | null => {
   if (!service.client || !service.startDate) return null;
   const clientNorm = service.client.trim().toLowerCase();
   if (!clientNorm) return null;
@@ -933,7 +941,19 @@ export const getPreviousServiceStartDate = (
     return (b.endDate || '').localeCompare(a.endDate || '');
   });
 
-  return previousServices[0].startDate;
+  return previousServices[0];
+};
+
+/**
+ * Retorna a Data de Início (startDate) da visita imediatamente anterior cadastrada para o mesmo cliente,
+ * ou null caso seja a primeira visita do cliente no calendário.
+ */
+export const getPreviousServiceStartDate = (
+  service: Pick<Service, 'id' | 'client' | 'startDate'>,
+  allServices: Service[]
+): string | null => {
+  const prev = getPreviousService(service, allServices);
+  return prev ? prev.startDate : null;
 };
 
 /**

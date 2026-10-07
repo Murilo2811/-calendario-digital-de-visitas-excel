@@ -813,32 +813,72 @@ test('regra de calibração vencida: início deve começar depois da última cal
   assert.equal(statusVencida10Dias.daysDelayed, 10);
 });
 
-test('regra de calibração vencida: busca data da última calibração a partir da visita anterior do mesmo cliente', () => {
+test('regra de calibração vencida: data limite calculada a partir do fim da visita anterior + período + 1 dia', () => {
   const visitaAnterior = base({
     id: 'visita-1',
     client: 'PETROBRAS',
     startDate: '2026-01-05',
-    endDate: '2026-01-09',
+    endDate: '2026-01-09', // Fim é 09/01/2026
     period: 6,
     realized: 'sim'
   });
 
-  // Segunda visita marcada para 15/07/2026 (limite era 05/07/2026 -> 10 dias de atraso)
-  const visitaSeguinte = base({
-    id: 'visita-2',
+  // Prazo tolerado: Fim da anterior (09/01/2026) + 6 meses = 09/07/2026
+
+  // 1. Início em 07/07/2026 (entre início 05/07 e fim 09/07) -> NO PRAZO
+  const visitaNoIntervalo = base({
+    id: 'visita-2a',
+    client: 'PETROBRAS',
+    startDate: '2026-07-07',
+    endDate: '2099-07-10',
+    period: 6,
+    realized: 'nao'
+  });
+  const statusNoIntervalo = getCalibrationStatus(visitaNoIntervalo, [visitaAnterior, visitaNoIntervalo]);
+  assert.equal(statusNoIntervalo.level, 'OK', 'Início entre o início e o fim da anterior + período está no prazo');
+  assert.equal(statusNoIntervalo.isDelayed, undefined);
+
+  // 2. Início no dia exato do fim + período (09/07/2026) -> NO PRAZO
+  const visitaNoFimLimite = base({
+    id: 'visita-2b',
+    client: 'PETROBRAS',
+    startDate: '2026-07-09',
+    endDate: '2099-07-12',
+    period: 6,
+    realized: 'nao'
+  });
+  const statusNoFimLimite = getCalibrationStatus(visitaNoFimLimite, [visitaAnterior, visitaNoFimLimite]);
+  assert.equal(statusNoFimLimite.level, 'OK', 'Início no dia do fim da anterior + período ainda está no prazo');
+
+  // 3. Início no dia seguinte ao fim (10/07/2026 = fim + período + 1 dia) -> VENCIDA (+1 dia)
+  const visitaVencida1Dia = base({
+    id: 'visita-2c',
+    client: 'PETROBRAS',
+    startDate: '2026-07-10',
+    endDate: '2099-07-13',
+    period: 6,
+    realized: 'nao'
+  });
+  const statusVencida1Dia = getCalibrationStatus(visitaVencida1Dia, [visitaAnterior, visitaVencida1Dia]);
+  assert.equal(statusVencida1Dia.level, 'EXPIRED', 'Início a partir do fim + período + 1 dia deve ser VENCIDA');
+  assert.equal(statusVencida1Dia.isDelayed, true);
+  assert.equal(statusVencida1Dia.daysDelayed, 1);
+  assert.equal(statusVencida1Dia.limitDateText, '09/07/2026');
+
+  // 4. Início em 15/07/2026 -> VENCIDA (+6 dias)
+  const visitaVencida6Dias = base({
+    id: 'visita-2d',
     client: 'PETROBRAS',
     startDate: '2026-07-15',
     endDate: '2099-07-18',
     period: 6,
-    lastCalibration: '', // campo vazio, deve buscar de visitaAnterior
     realized: 'nao'
   });
-
-  const status = getCalibrationStatus(visitaSeguinte, [visitaAnterior, visitaSeguinte]);
-  assert.equal(status.level, 'EXPIRED');
-  assert.equal(status.isDelayed, true);
-  assert.equal(status.daysDelayed, 10);
-  assert.equal(status.limitDateText, '05/07/2026');
+  const statusVencida6Dias = getCalibrationStatus(visitaVencida6Dias, [visitaAnterior, visitaVencida6Dias]);
+  assert.equal(statusVencida6Dias.level, 'EXPIRED');
+  assert.equal(statusVencida6Dias.isDelayed, true);
+  assert.equal(statusVencida6Dias.daysDelayed, 6);
+  assert.equal(statusVencida6Dias.limitDateText, '09/07/2026');
 });
 
 test('regra de calibração realizada fora do prazo: exibe OVERDUE_REALIZED para histórico de atraso', () => {
