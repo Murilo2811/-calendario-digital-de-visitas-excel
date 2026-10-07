@@ -10,6 +10,7 @@ import * as XLSX from 'xlsx';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
 import { getISOWeek } from 'date-fns/getISOWeek';
+import { isoToBrDate } from './utils';
 
 // Tipo para o handle do arquivo (navegador)
 type FileHandle = FileSystemFileHandle;
@@ -449,16 +450,16 @@ export const buildWorkbook = (
     'HP': s.hp,
     'HT': s.ht,
     'HV': s.hv,
-    'Data Inicio': s.startDate,
-    'Data Fim': s.endDate,
+    'Data Inicio': isoToBrDate(s.startDate),
+    'Data Fim': isoToBrDate(s.endDate),
     'Tecnicos': s.technicianIds
       .map(id => technicians.find(t => t.id === id)?.name || '')
       .filter(Boolean)
       .join(', '),
     'Realizado': s.realized === 'sim' ? 'Sim' : 'Não',
     'Status': s.status,
-    'Ultima Calibracao': s.lastCalibration || '',
-    'Proxima Calibracao': s.realized === 'sim' ? (s.nextCalibration || '') : '0',
+    'Ultima Calibracao': isoToBrDate(s.lastCalibration),
+    'Proxima Calibracao': s.realized === 'sim' ? isoToBrDate(s.nextCalibration) : '0',
     'Periodo': s.period || 0,
     'Comentários': s.comments || '',
   })), SHEET_SERVICES, [20, 8, 25, 12, 15, 25, 6, 6, 6, 12, 12, 20, 12, 22, 15, 15, 8, 35]);

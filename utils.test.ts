@@ -1004,3 +1004,17 @@ test('syncServicesLastCalibration respeita isLastCalibrationManual: sobrescrita 
 
 
 
+
+test('recorrência não duplica visita já existente (ex.: previsão confirmada) perto do ciclo', () => {
+  const origem = base({ id: 'o', startDate: '2026-07-27', endDate: '2026-07-31', realized: 'sim' });
+  const confirmada = base({ id: 'c', startDate: '2027-01-27', endDate: '2027-01-31', status: ServiceStatus.CONFIRMED });
+  const datas = createRecurringCalibrationForecasts(origem, techs, [origem, confirmada], 12).map(f => f.startDate);
+  assert.deepEqual(datas, ['2027-07-27'], 'só gera o ciclo que ainda não existe, encadeado a partir da visita confirmada');
+});
+
+test('calibração realizada com visita posterior do cliente não aparece como vencida', () => {
+  const anterior = base({ id: 'a', startDate: '2025-07-24', endDate: '2025-07-24', realized: 'sim' });
+  const atual = base({ id: 'b', startDate: '2026-01-05', endDate: '2026-01-05', realized: 'sim' });
+  const seguinte = base({ id: 'c', startDate: '2026-07-06', endDate: '2026-07-06', realized: 'sim' });
+  assert.notEqual(getCalibrationStatus(atual, [anterior, atual, seguinte]).level, 'EXPIRED');
+});

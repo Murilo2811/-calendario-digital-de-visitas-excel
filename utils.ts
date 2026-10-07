@@ -264,8 +264,16 @@ export const getCalibrationStatus = (
   const diffDays = differenceInDays(targetDate, today);
   const targetDateText = format(targetDate, 'dd/MM/yyyy', { locale: ptBR });
 
+  // Se o cliente já tem visita posterior no calendário, o ciclo foi atendido: não vence em relação a hoje
+  const clientNorm = (service.client || '').trim().toLowerCase();
+  const hasLaterVisit = !!allServices && !!startDateObj && allServices.some(s =>
+    s.id !== service.id &&
+    (s.client || '').trim().toLowerCase() === clientNorm &&
+    !!s.startDate && isValid(parseISO(s.startDate)) && parseISO(s.startDate) > startDateObj
+  );
+
   // 2.1 Se a PRÓXIMA calibração já expirou em relação a hoje -> VENCIDA!
-  if (diffDays < 0) {
+  if (diffDays < 0 && !hasLaterVisit) {
     return {
       level: 'EXPIRED',
       daysRemaining: Math.abs(diffDays),
@@ -350,12 +358,32 @@ export const createRecurringCalibrationForecasts = (
 
   let currentRefStart = baseStart;
 
+  // Previsões automáticas futuras do cliente serão substituídas; só as demais visitas contam como já existentes
+  const clientNorm = (baseService.client || '').trim().toLowerCase();
+  const realVisits = existingServices.filter(s => {
+    if (s.id === baseService.id || (s.client || '').trim().toLowerCase() !== clientNorm || !s.startDate) return false;
+    const replaceable = s.status === ServiceStatus.PREDICTED &&
+      ((s.description || '').includes('Calibração Prevista') || s.id.startsWith('svc-forecast-')) &&
+      s.startDate > baseService.startDate;
+    return !replaceable;
+  });
+
   for (let months = period; months <= maxMonths; months += period) {
     // Projeta o início somando o período e joga para segunda-feira se cair no fim de semana
     const cycleStart = adjustToNextMondayIfWeekend(addMonths(currentRefStart, period));
     // Fim é rigorosamente cronológico e preserva a duração exata da visita
     const cycleEnd = addDays(cycleStart, duration - 1);
     const cycle = months / period;
+
+    // Já existe visita do cliente perto deste ciclo (±45 dias): não duplica e encadeia a partir dela
+    const existing = realVisits.find(s => {
+      const d = parseISO(s.startDate);
+      return isValid(d) && Math.abs(differenceInDays(d, cycleStart)) <= 45;
+    });
+    if (existing) {
+      currentRefStart = parseISO(existing.startDate);
+      continue;
+    }
 
     const startDateStr = format(cycleStart, 'yyyy-MM-dd');
     const endDateStr = format(cycleEnd, 'yyyy-MM-dd');
@@ -687,13 +715,13 @@ export const exportToExcel = (services: Service[], technicians: Technician[]) =>
       'HP': s.hp,
       'HT': s.ht,
       'HV': s.hv,
-      'Inicio': s.startDate,
-      'Fim': s.endDate,
+      'Inicio': isoToBrDate(s.startDate),
+      'Fim': isoToBrDate(s.endDate),
       'EXEC.': techNames || 'Unknown',
       'REALIZADO': s.realized === 'sim' ? 'Sim' : 'Não',
-      'LAST.CAL': s.lastCalibration || '',
+      'LAST.CAL': isoToBrDate(s.lastCalibration),
       'PERIOD': s.period || 0,
-      'Proxima calibração': s.realized === 'sim' ? (s.nextCalibration || nextCalText) : '0',
+      'Proxima calibração': s.realized === 'sim' ? (isoToBrDate(s.nextCalibration) || nextCalText) : '0',
       'Status': s.status,
       'Previsão': forecastText
     };
