@@ -81,6 +81,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
             <div>
               <label className={labelClass}><Calendar size={12} className="inline mr-1"/> Início</label>
               <DateInput
+                className="!h-auto"
                 required
                 inputClassName={inputClass}
                 value={formData.startDate}
@@ -91,6 +92,7 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
             <div>
               <label className={labelClass}><Calendar size={12} className="inline mr-1"/> Fim</label>
               <DateInput
+                className="!h-auto"
                 required
                 inputClassName={inputClass}
                 value={formData.endDate}

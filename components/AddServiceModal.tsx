@@ -272,6 +272,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                 <div>
                   <label className={labelClass}>INÍCIO *</label>
                   <DateInput
+                    className="!h-auto"
                     required
                     disabled={!canEdit}
                     inputClassName={inputClass}
@@ -283,6 +284,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                 <div>
                   <label className={labelClass}>FIM *</label>
                   <DateInput
+                    className="!h-auto"
                     required
                     disabled={!canEdit}
                     inputClassName={inputClass}
@@ -297,6 +299,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                 <div>
                   <label className={labelClass}>ÚLTIMA CALIBRAÇÃO</label>
                   <DateInput
+                    className="!h-auto"
                     disabled={!canEdit}
                     inputClassName={`${inputClass} ${!formData.lastCalibration && previousStartDate ? 'bg-slate-100/80 text-slate-700 font-semibold' : ''}`}
                     value={formData.lastCalibration || previousStartDate || ''}
@@ -326,6 +329,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                     />
                   ) : (
                     <DateInput
+                      className="!h-auto"
                       disabled={!canEdit}
                       inputClassName={inputClass}
                       value={formData.nextCalibration || autoNextCal || ''}
@@ -525,6 +529,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                 <div>
                   <label className={labelClass}>INÍCIO *</label>
                   <DateInput
+                    className="!h-auto"
                     required
                     disabled={!canEdit}
                     inputClassName={inputClass}
@@ -537,6 +542,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                 <div>
                   <label className={labelClass}>FIM *</label>
                   <DateInput
+                    className="!h-auto"
                     required
                     disabled={!canEdit}
                     inputClassName={inputClass}
@@ -560,6 +566,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                   <div>
                     <label className={labelClass}>Última Calibração</label>
                     <DateInput
+                      className="!h-auto"
                       disabled={!canEdit}
                       inputClassName={`w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
                       value={formData.lastCalibration || ''}
@@ -579,6 +586,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                       />
                     ) : (
                       <DateInput
+                        className="!h-auto"
                         disabled={!canEdit}
                         inputClassName={`w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
                         value={formData.nextCalibration || ''}
