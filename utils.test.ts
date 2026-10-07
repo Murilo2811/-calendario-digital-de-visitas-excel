@@ -764,5 +764,101 @@ test('applyBatchServiceUpdates: gera automaticamente novas atividades ao alterar
   assert.equal(newService.realized, 'nao');
 });
 
+test('regra de calibração vencida: início deve começar depois da última calibração + período + 1 dia', () => {
+  // Última calibração: 10/01/2026, período: 6 meses -> Prazo limite: 10/07/2026
+  
+  // Cenário 1: Início no dia exato do limite (10/07/2026) -> DENTRO DO PRAZO (não é calibração vencida)
+  const svcNoPrazo = base({
+    client: 'Cliente Calibração',
+    lastCalibration: '2026-01-10',
+    startDate: '2026-07-10',
+    endDate: '2099-07-12', // término no futuro para isolar teste de periodicidade
+    period: 6,
+    realized: 'nao',
+    status: ServiceStatus.CONFIRMED
+  });
+  const statusNoPrazo = getCalibrationStatus(svcNoPrazo);
+  assert.equal(statusNoPrazo.level, 'OK', 'Início no dia 10/07/2026 deve estar dentro do prazo');
+  assert.equal(statusNoPrazo.isDelayed, undefined);
+
+  // Cenário 2: Início 1 dia depois do limite (11/07/2026) -> VENCIDA (+1 dia)
+  const svcVencida1Dia = base({
+    client: 'Cliente Calibração',
+    lastCalibration: '2026-01-10',
+    startDate: '2026-07-11',
+    endDate: '2099-07-13',
+    period: 6,
+    realized: 'nao',
+    status: ServiceStatus.CONFIRMED
+  });
+  const statusVencida1Dia = getCalibrationStatus(svcVencida1Dia);
+  assert.equal(statusVencida1Dia.level, 'EXPIRED', 'Início no dia 11/07/2026 (+1 dia do limite) deve ser considerado VENCIDA');
+  assert.equal(statusVencida1Dia.isDelayed, true);
+  assert.equal(statusVencida1Dia.daysDelayed, 1);
+  assert.equal(statusVencida1Dia.limitDateText, '10/07/2026');
+
+  // Cenário 3: Início 10 dias depois do limite (20/07/2026) -> VENCIDA (10 dias de atraso)
+  const svcVencida10Dias = base({
+    client: 'Cliente Calibração',
+    lastCalibration: '2026-01-10',
+    startDate: '2026-07-20',
+    endDate: '2099-07-22',
+    period: 6,
+    realized: 'nao',
+    status: ServiceStatus.PREDICTED
+  });
+  const statusVencida10Dias = getCalibrationStatus(svcVencida10Dias);
+  assert.equal(statusVencida10Dias.level, 'EXPIRED');
+  assert.equal(statusVencida10Dias.isDelayed, true);
+  assert.equal(statusVencida10Dias.daysDelayed, 10);
+});
+
+test('regra de calibração vencida: busca data da última calibração a partir da visita anterior do mesmo cliente', () => {
+  const visitaAnterior = base({
+    id: 'visita-1',
+    client: 'PETROBRAS',
+    startDate: '2026-01-05',
+    endDate: '2026-01-09',
+    period: 6,
+    realized: 'sim'
+  });
+
+  // Segunda visita marcada para 15/07/2026 (limite era 05/07/2026 -> 10 dias de atraso)
+  const visitaSeguinte = base({
+    id: 'visita-2',
+    client: 'PETROBRAS',
+    startDate: '2026-07-15',
+    endDate: '2099-07-18',
+    period: 6,
+    lastCalibration: '', // campo vazio, deve buscar de visitaAnterior
+    realized: 'nao'
+  });
+
+  const status = getCalibrationStatus(visitaSeguinte, [visitaAnterior, visitaSeguinte]);
+  assert.equal(status.level, 'EXPIRED');
+  assert.equal(status.isDelayed, true);
+  assert.equal(status.daysDelayed, 10);
+  assert.equal(status.limitDateText, '05/07/2026');
+});
+
+test('regra de calibração realizada fora do prazo: exibe OVERDUE_REALIZED para histórico de atraso', () => {
+  const svcRealizadaComAtraso = base({
+    client: 'SUZANO',
+    lastCalibration: '2026-01-10',
+    startDate: '2026-07-20',
+    endDate: '2026-07-24',
+    period: 6,
+    nextCalibration: '2099-01-20',
+    realized: 'sim',
+    status: ServiceStatus.CONFIRMED
+  });
+
+  const status = getCalibrationStatus(svcRealizadaComAtraso);
+  assert.equal(status.level, 'OVERDUE_REALIZED');
+  assert.equal(status.isDelayed, true);
+  assert.equal(status.daysDelayed, 10);
+  assert.ok(status.delayReason?.includes('Realizada Fora do Prazo'));
+});
+
 
 

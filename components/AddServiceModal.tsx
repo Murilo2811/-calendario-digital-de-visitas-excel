@@ -631,8 +631,9 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                   // (checkPeriodExceeded só lê period, lastCalibration e startDate)
                   const startDateStr = formData.startDate || '';
                   const periodCheck = checkPeriodExceeded(
-                    { period: p, lastCalibration: formData.lastCalibration || '', startDate: startDateStr } as Service,
-                    startDateStr
+                    { period: p, lastCalibration: formData.lastCalibration || '', startDate: startDateStr, client: formData.client || '' } as Service,
+                    startDateStr,
+                    services
                   );
 
                   return (

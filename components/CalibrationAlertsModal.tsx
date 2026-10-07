@@ -43,7 +43,7 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
   const analyzedServices = useMemo(() => {
     return services
       .map(service => {
-        const calStatus = getCalibrationStatus(service);
+        const calStatus = getCalibrationStatus(service, services);
         return {
           service,
           calStatus
@@ -55,18 +55,20 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
   // Counts
   const counts = useMemo(() => {
     let expired = 0;
+    let overdueRealized = 0;
     let expiringSoon = 0;
     let ok = 0;
 
     analyzedServices.forEach(item => {
       if (item.calStatus.level === 'EXPIRED') expired++;
+      else if (item.calStatus.level === 'OVERDUE_REALIZED') overdueRealized++;
       else if (item.calStatus.level === 'EXPIRING_SOON') expiringSoon++;
       else if (item.calStatus.level === 'OK') ok++;
     });
 
     return {
       all: analyzedServices.length,
-      expired,
+      expired: expired + overdueRealized,
       expiringSoon,
       ok
     };
@@ -76,7 +78,11 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
   const filteredList = useMemo(() => {
     return analyzedServices
       .filter(item => {
-        if (activeTab !== 'ALL' && item.calStatus.level !== activeTab) {
+        if (activeTab === 'EXPIRED') {
+          if (item.calStatus.level !== 'EXPIRED' && item.calStatus.level !== 'OVERDUE_REALIZED') {
+            return false;
+          }
+        } else if (activeTab !== 'ALL' && item.calStatus.level !== activeTab) {
           return false;
         }
 
@@ -91,12 +97,13 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
         return true;
       })
       .sort((a, b) => {
-        // Expired first, then expiring soon, then OK
+        // Expired first, then overdue realized, then expiring soon, then OK
         const order: Record<CalibrationAlertLevel, number> = {
           EXPIRED: 0,
-          EXPIRING_SOON: 1,
-          OK: 2,
-          NONE: 3
+          OVERDUE_REALIZED: 1,
+          EXPIRING_SOON: 2,
+          OK: 3,
+          NONE: 4
         };
         const levelDiff = order[a.calStatus.level] - order[b.calStatus.level];
         if (levelDiff !== 0) return levelDiff;
@@ -208,6 +215,7 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
                 .join(', ') || 'Nenhum';
 
               const isExpired = calStatus.level === 'EXPIRED';
+              const isOverdueRealized = calStatus.level === 'OVERDUE_REALIZED';
               const isExpiringSoon = calStatus.level === 'EXPIRING_SOON';
 
               return (
@@ -216,6 +224,8 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
                   className={`p-4 rounded-xl border transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-3 ${
                     isExpired
                       ? 'bg-red-50/70 border-red-200 hover:border-red-300'
+                      : isOverdueRealized
+                      ? 'bg-amber-50/80 border-amber-300 hover:border-amber-400'
                       : isExpiringSoon
                       ? 'bg-amber-50/70 border-amber-200 hover:border-amber-300'
                       : 'bg-white border-slate-200 hover:border-slate-300'
@@ -227,12 +237,16 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
                       className={`p-2 rounded-xl mt-0.5 ${
                         isExpired
                           ? 'bg-red-100 text-red-600'
+                          : isOverdueRealized
+                          ? 'bg-amber-200 text-amber-800'
                           : isExpiringSoon
                           ? 'bg-amber-100 text-amber-600'
                           : 'bg-emerald-100 text-emerald-600'
                       }`}
                     >
                       {isExpired ? (
+                        <AlertTriangle size={18} />
+                      ) : isOverdueRealized ? (
                         <AlertTriangle size={18} />
                       ) : isExpiringSoon ? (
                         <Clock size={18} />
@@ -255,6 +269,11 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
                         <span className="text-[10px] px-2 py-0.5 rounded font-semibold uppercase tracking-wider bg-slate-200 text-slate-700">
                           {service.status}
                         </span>
+                        {isOverdueRealized && (
+                          <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-amber-500 text-white shadow-2xs">
+                            FORA DO PRAZO
+                          </span>
+                        )}
                       </div>
 
                       <div className="mt-1 flex items-center gap-4 text-xs text-slate-500 flex-wrap">
@@ -270,6 +289,11 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
                           <strong>Técnico(s):</strong> {techNames}
                         </span>
                       </div>
+                      {calStatus.delayReason && (
+                        <div className="mt-1 text-[11px] font-medium text-amber-900/80 bg-amber-100/60 px-2 py-0.5 rounded-md inline-block">
+                          ℹ️ {calStatus.delayReason}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -281,6 +305,8 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
                         className={`text-sm font-bold ${
                           isExpired
                             ? 'text-red-700'
+                            : isOverdueRealized
+                            ? 'text-amber-800'
                             : isExpiringSoon
                             ? 'text-amber-700'
                             : 'text-slate-800'
@@ -292,6 +318,10 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
                         {isExpired ? (
                           <span className="text-red-600">
                             Atrasado há {Math.abs(calStatus.daysRemaining || 0)} dias
+                          </span>
+                        ) : isOverdueRealized ? (
+                          <span className="text-amber-700">
+                            Realizada com atraso de {calStatus.daysDelayed} dia(s)
                           </span>
                         ) : isExpiringSoon ? (
                           <span className="text-amber-600">

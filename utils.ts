@@ -102,7 +102,7 @@ export const findAvailableTechnicians = (
   });
 };
 
-export type CalibrationAlertLevel = 'EXPIRED' | 'EXPIRING_SOON' | 'OK' | 'NONE';
+export type CalibrationAlertLevel = 'EXPIRED' | 'EXPIRING_SOON' | 'OK' | 'NONE' | 'OVERDUE_REALIZED';
 
 export interface CalibrationStatusInfo {
   level: CalibrationAlertLevel;
@@ -110,23 +110,75 @@ export interface CalibrationStatusInfo {
   targetDate: Date | null;
   targetDateText: string;
   isForecast: boolean;
+  isDelayed?: boolean;
+  daysDelayed?: number;
+  limitDateText?: string;
+  delayReason?: string;
 }
 
 /**
  * Analyzes the calibration expiration status of a service.
+ * Regra: Para uma calibração ser considerada vencida, o início base deve começar
+ * depois da data da última calibração + o período + 1 dia (startDate > limitDate).
+ * Se a visita foi Realizada (Sim) mas começou após o prazo, registra como OVERDUE_REALIZED (Fora do Prazo).
  */
-export const getCalibrationStatus = (service: Service): CalibrationStatusInfo => {
+export const getCalibrationStatus = (
+  service: Service,
+  allServices?: Service[]
+): CalibrationStatusInfo => {
   const today = startOfDay(new Date());
 
   const endDateObj = service.endDate && isValid(parseISO(service.endDate))
     ? startOfDay(parseISO(service.endDate))
     : (service.startDate && isValid(parseISO(service.startDate)) ? startOfDay(parseISO(service.startDate)) : null);
 
+  const startDateObj = service.startDate && isValid(parseISO(service.startDate))
+    ? startOfDay(parseISO(service.startDate))
+    : null;
+
   const isEndDateInFutureOrToday = endDateObj ? endDateObj >= today : false;
+
+  // 1. Obter a data base da calibração anterior (para verificar se o início atual respeita o ciclo anterior)
+  let prevCalDateStr: string | null = null;
+  if (allServices && allServices.length > 0) {
+    prevCalDateStr = getPreviousServiceStartDate(service, allServices);
+  }
+  if (!prevCalDateStr && service.lastCalibration && isValid(parseISO(service.lastCalibration))) {
+    prevCalDateStr = service.lastCalibration;
+  }
+
+  // Se houver calibração anterior e periodicidade, calcular o prazo limite e verificar se o início base começou depois do limite (+1 dia)
+  let isStartOverdue = false;
+  let delayDays = 0;
+  let limitDateText = '';
+  let limitDate: Date | null = null;
+
+  if (service.period && service.period > 0 && prevCalDateStr && isValid(parseISO(prevCalDateStr)) && startDateObj) {
+    limitDate = startOfDay(addMonths(parseISO(prevCalDateStr), service.period));
+    delayDays = differenceInDays(startDateObj, limitDate);
+    // Para ser considerada vencida, o início base deve começar depois da data da última calibração + período + 1 dia (delayDays > 0)
+    isStartOverdue = delayDays > 0;
+    limitDateText = format(limitDate, 'dd/MM/yyyy', { locale: ptBR });
+  }
 
   // CASO 1: Atividade NÃO realizada (realized !== 'sim')
   if (service.realized !== 'sim') {
-    // 1.1 Se a data de término da visita já passou -> VENCIDA!
+    // 1.1 Se o início base começa após a data limite da calibração anterior -> CALIBRAÇÃO VENCIDA!
+    if (isStartOverdue && limitDate) {
+      return {
+        level: 'EXPIRED',
+        daysRemaining: -delayDays,
+        targetDate: limitDate,
+        targetDateText: limitDateText,
+        isForecast: true,
+        isDelayed: true,
+        daysDelayed: delayDays,
+        limitDateText,
+        delayReason: `Calibração Vencida: início da visita ultrapassa o prazo limite em ${delayDays} dia(s) (Data limite: ${limitDateText})`
+      };
+    }
+
+    // 1.2 Se a data de término da própria visita já passou no calendário -> VISITA VENCIDA!
     if (endDateObj && !isEndDateInFutureOrToday) {
       const diffDays = differenceInDays(endDateObj, today);
       const targetDateText = format(endDateObj, 'dd/MM/yyyy', { locale: ptBR });
@@ -135,15 +187,14 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
         daysRemaining: Math.abs(diffDays),
         targetDate: endDateObj,
         targetDateText,
-        isForecast: false
+        isForecast: false,
+        delayReason: `Visita Vencida (${targetDateText})`
       };
     }
 
-    // 1.2 Se a data de término da visita ainda NÃO venceu (hoje ou no futuro):
-    // Regra: "se a data de fim ainda nao venceu nao concidere como vencido"
+    // 1.3 Se a data de término da visita ainda NÃO venceu (hoje ou no futuro):
     if (endDateObj && isEndDateInFutureOrToday) {
       const endDiffDays = differenceInDays(endDateObj, today);
-      // O badge 'Xd' só deve aparecer se o status for diferente de "Cliente Confirmado"
       const isExpiringSoon = endDiffDays <= 30 && service.status !== ServiceStatus.CONFIRMED;
       const targetDateText = format(endDateObj, 'dd/MM/yyyy', { locale: ptBR });
       return {
@@ -176,7 +227,7 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
     };
   }
 
-  // Com periodicidade, avalia o vencimento da PRÓXIMA calibração
+  // Com periodicidade, avalia a PRÓXIMA calibração
   let targetDate: Date;
   if (service.nextCalibration && isValid(parseISO(service.nextCalibration))) {
     targetDate = startOfDay(parseISO(service.nextCalibration));
@@ -201,18 +252,34 @@ export const getCalibrationStatus = (service: Service): CalibrationStatusInfo =>
   const diffDays = differenceInDays(targetDate, today);
   const targetDateText = format(targetDate, 'dd/MM/yyyy', { locale: ptBR });
 
-  // Se a data da próxima calibração expirou -> VENCIDA!
+  // 2.1 Se a PRÓXIMA calibração já expirou em relação a hoje -> VENCIDA!
   if (diffDays < 0) {
     return {
       level: 'EXPIRED',
       daysRemaining: Math.abs(diffDays),
       targetDate,
       targetDateText,
-      isForecast: true
+      isForecast: true,
+      delayReason: `Calibração Vencida (Próxima calibração era em ${targetDateText})`
     };
   }
 
-  // Próximo do vencimento da calibração (até 30 dias se status != Confirmado)
+  // 2.2 Se a visita foi REALIZADA, mas na época foi iniciada fora do prazo (histórico de atraso):
+  if (isStartOverdue && limitDate) {
+    return {
+      level: 'OVERDUE_REALIZED',
+      daysRemaining: diffDays,
+      targetDate,
+      targetDateText,
+      isForecast: true,
+      isDelayed: true,
+      daysDelayed: delayDays,
+      limitDateText,
+      delayReason: `Realizada Fora do Prazo: calibração anterior venceu em ${limitDateText} e a visita iniciou com ${delayDays} dia(s) de atraso`
+    };
+  }
+
+  // 2.3 Próximo do vencimento da próxima calibração (até 30 dias se status != Confirmado)
   if (diffDays <= 30 && service.status !== ServiceStatus.CONFIRMED) {
     return {
       level: 'EXPIRING_SOON',
@@ -336,7 +403,8 @@ const NO_DEADLINE: PeriodExceededResult = { isExceeded: false, daysExceeded: 0, 
  */
 export const checkPeriodExceeded = (
   service: Service,
-  proposedStartDate: string
+  proposedStartDate: string,
+  allServices?: Service[]
 ): PeriodExceededResult => {
   const period = service.period;
   if (!period || period <= 0) return NO_DEADLINE;
@@ -344,12 +412,19 @@ export const checkPeriodExceeded = (
   const proposedStart = parseISO(proposedStartDate);
   if (!isValid(proposedStart)) return NO_DEADLINE;
 
-  // Prazo conta a partir da última calibração; sem ela, do início do próprio serviço
-  const baseDate = [service.lastCalibration, service.startDate]
-    .map(d => (d ? parseISO(d) : null))
-    .find(d => d && isValid(d));
+  // Prazo conta a partir da última calibração (ou visita anterior); sem ela, do início do próprio serviço
+  let baseDateStr = service.lastCalibration;
+  if (allServices && allServices.length > 0 && (!baseDateStr || !isValid(parseISO(baseDateStr)))) {
+    const prev = getPreviousServiceStartDate(service, allServices);
+    if (prev) baseDateStr = prev;
+  }
+  if (!baseDateStr || !isValid(parseISO(baseDateStr))) {
+    baseDateStr = service.startDate;
+  }
+  if (!baseDateStr || !isValid(parseISO(baseDateStr))) return NO_DEADLINE;
 
-  if (!baseDate) return NO_DEADLINE;
+  const baseDate = parseISO(baseDateStr);
+  if (!isValid(baseDate)) return NO_DEADLINE;
 
   const limitDate = addMonths(baseDate, period);
   const daysDiff = differenceInDays(proposedStart, limitDate);

@@ -617,9 +617,9 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
 
             const clientConflicts = getClientConflicts(services, service.client, service.startDate, service.endDate, service.id);
             const hasClientOverlap = clientConflicts.length > 0;
-            const calStatus = getCalibrationStatus(service);
-            // Badge de vencimento só aparece quando há uma próxima calibração de fato prevista
-            const showCalBadge = calStatus.isForecast && !!(service.nextCalibration || (service.period && service.period > 0 && isoDate));
+            const calStatus = getCalibrationStatus(service, services);
+            // Badge de vencimento aparece quando há calibração prevista ou realizada fora do prazo
+            const showCalBadge = (calStatus.isForecast || calStatus.level === 'OVERDUE_REALIZED') && !!(service.nextCalibration || (service.period && service.period > 0));
 
             return (
                 <tr key={service.id} className={`${rowBgClass} transition-colors group`}>
@@ -714,7 +714,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                     {/* Start Date Column */}
                     <td className="p-0 border-b border-slate-100 relative h-10 w-36 min-w-[135px]">
                         <div className="flex items-center justify-center gap-1 h-full px-1">
-                            {service.realized !== 'sim' && calStatus.level === 'EXPIRED' && (
+                            {service.realized !== 'sim' && calStatus.level === 'EXPIRED' && !calStatus.isDelayed && (
                                 <span
                                     className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded shadow-sm shrink-0"
                                     title={`Visita Vencida (${calStatus.targetDateText})`}
@@ -855,9 +855,17 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                             {showCalBadge && calStatus.level === 'EXPIRED' && (
                                 <span
                                     className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded shadow-sm shrink-0"
-                                    title={`Calibração Vencida (${calStatus.targetDateText})`}
+                                    title={calStatus.delayReason || `Calibração Vencida (${calStatus.targetDateText})`}
                                 >
                                     VENC
+                                </span>
+                            )}
+                            {showCalBadge && calStatus.level === 'OVERDUE_REALIZED' && (
+                                <span
+                                    className="px-1.5 py-0.5 bg-amber-500 text-white font-bold text-[9px] rounded shadow-sm shrink-0 ring-1 ring-amber-400"
+                                    title={calStatus.delayReason || `Realizada Fora do Prazo (${calStatus.limitDateText})`}
+                                >
+                                    FORA DO PRAZO
                                 </span>
                             )}
                             {showCalBadge && calStatus.level === 'EXPIRING_SOON' && (

@@ -130,8 +130,8 @@ const App: React.FC = () => {
         let expired = 0;
         let expiringSoon = 0;
         services.forEach(s => {
-            const st = getCalibrationStatus(s);
-            if (st.level === 'EXPIRED') expired++;
+            const st = getCalibrationStatus(s, services);
+            if (st.level === 'EXPIRED' || st.level === 'OVERDUE_REALIZED') expired++;
             else if (st.level === 'EXPIRING_SOON') expiringSoon++;
         });
         return { expired, expiringSoon, totalAlerts: expired + expiringSoon };
@@ -938,7 +938,7 @@ const App: React.FC = () => {
             const newWeek = getISOWeek(newStart);
 
             // 1. Checar se o reagendamento ultrapassa a data limite da periodicidade (atraso)
-            const periodCheck = checkPeriodExceeded(serviceToMove, newStartDate);
+            const periodCheck = checkPeriodExceeded(serviceToMove, newStartDate, services);
             if (periodCheck.isExceeded) {
                 const confirmed = window.confirm(
                     `⚠️ ATENÇÃO: PRAZO DE PERIODICIDADE ULTRAPASSADO!\n\n` +

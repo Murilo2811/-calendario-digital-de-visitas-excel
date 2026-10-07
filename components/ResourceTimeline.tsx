@@ -276,12 +276,13 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
         const isResizing = resizeState?.service.id === service.id;
         const isAnyResizing = resizeState !== null;
 
-        const calStatus = getCalibrationStatus(service);
+        const calStatus = getCalibrationStatus(service, services);
         const isExpired = calStatus.level === 'EXPIRED';
+        const isOverdueRealized = calStatus.level === 'OVERDUE_REALIZED';
         const isExpiringSoon = calStatus.level === 'EXPIRING_SOON';
 
         // Check if periodicity deadline was exceeded (atraso de periodicidade)
-        const periodCheck = checkPeriodExceeded(service, service.startDate);
+        const periodCheck = checkPeriodExceeded(service, service.startDate, services);
         const isPeriodExceeded = periodCheck.isExceeded;
 
         // Check if there are other services for the same client overlapping with this one
@@ -291,8 +292,10 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
         let calTooltipExtra = '';
         if (isPeriodExceeded) {
             calTooltipExtra = `\n⚠️ PRAZO DE PERIODICIDADE EXCEDIDO em ${periodCheck.daysExceeded} dia(s) (Data limite era: ${periodCheck.limitDateText})`;
+        } else if (isOverdueRealized) {
+            calTooltipExtra = `\n⚠️ REALIZADA FORA DO PRAZO (${calStatus.delayReason})`;
         } else if (isExpired) {
-            calTooltipExtra = `\n⚠️ CALIBRAÇÃO VENCIDA (Prevista para ${calStatus.targetDateText}, atrasada em ${Math.abs(calStatus.daysRemaining || 0)} dias)`;
+            calTooltipExtra = `\n⚠️ CALIBRAÇÃO VENCIDA (${calStatus.delayReason || `Prevista para ${calStatus.targetDateText}, atrasada em ${Math.abs(calStatus.daysRemaining || 0)} dias`})`;
         } else if (isExpiringSoon) {
             calTooltipExtra = `\n⏰ CALIBRAÇÃO VENCE EM ${calStatus.daysRemaining} DIAS (${calStatus.targetDateText})`;
         }
