@@ -79,8 +79,6 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
     }
   }, [isOpen, technicians, serviceToEdit]);
 
-  if (!isOpen) return null;
-
   const previousStartDate = (services.length > 0 && formData.client && formData.startDate)
     ? getPreviousServiceStartDate(
         { id: serviceToEdit?.id || 'temp-id', client: formData.client, startDate: formData.startDate },
@@ -100,6 +98,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
     );
     return res.isoDate || '';
   }, [formData.startDate, formData.lastCalibration, previousStartDate, formData.period, formData.realized]);
+
+  if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
