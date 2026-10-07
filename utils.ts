@@ -139,21 +139,27 @@ export const getCalibrationStatus = (
   const isEndDateInFutureOrToday = endDateObj ? endDateObj >= today : false;
 
   // 1. Obter a data base da calibração anterior (para verificar se o início atual respeita o ciclo anterior)
+  // Regra alinhada: Se uma atividade não apresentar uma atividade com data anterior no calendário,
+  // essa atividade atual NÃO deve aparecer como calibração vencida.
   let prevCalDateStr: string | null = null;
+  let hasPreviousService = false;
+
   if (allServices && allServices.length > 0) {
     prevCalDateStr = getPreviousServiceStartDate(service, allServices);
-  }
-  if (!prevCalDateStr && service.lastCalibration && isValid(parseISO(service.lastCalibration))) {
+    hasPreviousService = prevCalDateStr !== null;
+  } else if (service.lastCalibration && isValid(parseISO(service.lastCalibration))) {
+    // Fallback apenas quando allServices não for fornecido (ex: testes unitários isolados)
     prevCalDateStr = service.lastCalibration;
+    hasPreviousService = true;
   }
 
-  // Se houver calibração anterior e periodicidade, calcular o prazo limite e verificar se o início base começou depois do limite (+1 dia)
+  // Se houver atividade anterior e periodicidade, calcular o prazo limite e verificar se o início base começou depois do limite (+1 dia)
   let isStartOverdue = false;
   let delayDays = 0;
   let limitDateText = '';
   let limitDate: Date | null = null;
 
-  if (service.period && service.period > 0 && prevCalDateStr && isValid(parseISO(prevCalDateStr)) && startDateObj) {
+  if (hasPreviousService && service.period && service.period > 0 && prevCalDateStr && isValid(parseISO(prevCalDateStr)) && startDateObj) {
     limitDate = startOfDay(addMonths(parseISO(prevCalDateStr), service.period));
     delayDays = differenceInDays(startDateObj, limitDate);
     // Para ser considerada vencida, o início base deve começar depois da data da última calibração + período + 1 dia (delayDays > 0)
@@ -412,12 +418,28 @@ export const checkPeriodExceeded = (
   const proposedStart = parseISO(proposedStartDate);
   if (!isValid(proposedStart)) return NO_DEADLINE;
 
-  // Prazo conta a partir da última calibração (ou visita anterior); sem ela, do início do próprio serviço
-  let baseDateStr = service.lastCalibration;
-  if (allServices && allServices.length > 0 && (!baseDateStr || !isValid(parseISO(baseDateStr)))) {
+  // Se allServices for fornecido, verifica se há atividade anterior do mesmo cliente
+  if (allServices && allServices.length > 0) {
     const prev = getPreviousServiceStartDate(service, allServices);
-    if (prev) baseDateStr = prev;
+    // Se NÃO apresentar uma atividade anterior no calendário, a atividade atual não deve acusar prazo excedido
+    if (!prev) {
+      return NO_DEADLINE;
+    }
+    const baseDate = parseISO(prev);
+    if (!isValid(baseDate)) return NO_DEADLINE;
+
+    const limitDate = addMonths(baseDate, period);
+    const daysDiff = differenceInDays(proposedStart, limitDate);
+
+    return {
+      isExceeded: daysDiff > 0,
+      daysExceeded: Math.max(daysDiff, 0),
+      limitDateText: format(limitDate, 'dd/MM/yyyy', { locale: ptBR })
+    };
   }
+
+  // Fallback quando allServices não for fornecido (ex: testes unitários isolados)
+  let baseDateStr = service.lastCalibration;
   if (!baseDateStr || !isValid(parseISO(baseDateStr))) {
     baseDateStr = service.startDate;
   }

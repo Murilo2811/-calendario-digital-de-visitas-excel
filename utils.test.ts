@@ -860,5 +860,44 @@ test('regra de calibração realizada fora do prazo: exibe OVERDUE_REALIZED para
   assert.ok(status.delayReason?.includes('Realizada Fora do Prazo'));
 });
 
+test('regra de primeira atividade: sem atividade anterior no calendário NÃO deve aparecer como calibração vencida', () => {
+  // Atividade única do cliente (primeira visita cadastrada no calendário)
+  const primeiraVisita = base({
+    id: 'primeira-visita-1',
+    client: 'NOVO CLIENTE ABB',
+    startDate: '2026-07-20',
+    endDate: '2099-07-24', // futura
+    period: 6,
+    lastCalibration: '2024-01-01', // data antiga no campo manual
+    realized: 'nao',
+    status: ServiceStatus.PREDICTED
+  });
+
+  // 1. getCalibrationStatus com lista de serviços onde ela é a única do cliente
+  const status = getCalibrationStatus(primeiraVisita, [primeiraVisita]);
+  assert.equal(status.level, 'OK', 'Primeira visita não deve nascer com calibração vencida');
+  assert.equal(status.isDelayed, undefined, 'Não deve ter flag de atraso por ciclo anterior');
+
+  // 2. checkPeriodExceeded ao criar, editar ou arrastar
+  const check = checkPeriodExceeded(primeiraVisita, primeiraVisita.startDate, [primeiraVisita]);
+  assert.equal(check.isExceeded, false, 'Primeira visita não deve emitir aviso de prazo ultrapassado');
+  assert.equal(check.daysExceeded, 0);
+
+  // 3. Se a própria visita já passou no passado (ex: 2020), acusa visita vencida pela data de término, mas sem atraso de calibração
+  const visitaPassada = base({
+    id: 'primeira-visita-passada',
+    client: 'OUTRO NOVO CLIENTE',
+    startDate: '2020-01-05',
+    endDate: '2020-01-09',
+    period: 6,
+    lastCalibration: '2019-01-01',
+    realized: 'nao',
+    status: ServiceStatus.CONFIRMED
+  });
+  const statusPassada = getCalibrationStatus(visitaPassada, [visitaPassada]);
+  assert.equal(statusPassada.level, 'EXPIRED', 'Visita agendada no passado não realizada acusa visita vencida');
+  assert.equal(statusPassada.isDelayed, undefined, 'Não deve acusar atraso de calibração');
+});
+
 
 
