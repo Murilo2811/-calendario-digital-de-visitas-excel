@@ -2,7 +2,7 @@
 // Roda sem framework: `npm test` (node:test + node:assert, type stripping nativo do Node 24).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod, calculateServiceForecast, applyBatchServiceUpdates, getBrazilianHoliday, isNonWorkingDay, generateNextCalibrationService, getPreviousServiceStartDate, syncServicesLastCalibration } from './utils.ts';
+import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod, calculateServiceForecast, applyBatchServiceUpdates, getBrazilianHoliday, isNonWorkingDay, generateNextCalibrationService, getPreviousServiceStartDate, syncServicesLastCalibration, isoToBrDate, brDateToIso, formatDateMask, isValidBrDate } from './utils.ts';
 import { ServiceStatus, TechType } from './types.ts';
 import type { Service, Technician } from './types.ts';
 
@@ -937,6 +937,69 @@ test('regra de primeira atividade: sem atividade anterior no calendário NÃO de
   const statusPassada = getCalibrationStatus(visitaPassada, [visitaPassada]);
   assert.equal(statusPassada.level, 'EXPIRED', 'Visita agendada no passado não realizada acusa visita vencida');
   assert.equal(statusPassada.isDelayed, undefined, 'Não deve acusar atraso de calibração');
+});
+
+test('isoToBrDate e brDateToIso: conversão e validação segura de datas', () => {
+  // ISO -> BR
+  assert.equal(isoToBrDate('2026-03-15'), '15/03/2026');
+  assert.equal(isoToBrDate('2024-02-29'), '29/02/2024');
+  assert.equal(isoToBrDate(''), '');
+  assert.equal(isoToBrDate(null), '');
+  assert.equal(isoToBrDate('15/03/2026'), '15/03/2026');
+
+  // BR -> ISO
+  assert.equal(brDateToIso('15/03/2026'), '2026-03-15');
+  assert.equal(brDateToIso('29/02/2024'), '2024-02-29'); // Bissexto válido
+  assert.equal(brDateToIso('29/02/2025'), null); // 2025 não é bissexto -> inválido
+  assert.equal(brDateToIso('31/04/2026'), null); // Abril tem 30 dias -> inválido
+  assert.equal(brDateToIso('32/01/2026'), null); // Dia inválido
+  assert.equal(brDateToIso('15/13/2026'), null); // Mês inválido
+  assert.equal(brDateToIso(''), '');
+  assert.equal(brDateToIso('15/03/'), null); // Incompleta
+
+  // isValidBrDate
+  assert.equal(isValidBrDate('15/03/2026'), true);
+  assert.equal(isValidBrDate('31/02/2026'), false);
+  assert.equal(isValidBrDate(''), false);
+});
+
+test('formatDateMask: formatação automática de máscara enquanto digita', () => {
+  assert.equal(formatDateMask('1'), '1');
+  assert.equal(formatDateMask('15'), '15');
+  assert.equal(formatDateMask('150'), '15/0');
+  assert.equal(formatDateMask('1503'), '15/03');
+  assert.equal(formatDateMask('15032'), '15/03/2');
+  assert.equal(formatDateMask('15032026'), '15/03/2026');
+  assert.equal(formatDateMask('15032026999'), '15/03/2026'); // Limite 8 dígitos
+  assert.equal(formatDateMask('15/03/2026'), '15/03/2026');
+});
+
+test('syncServicesLastCalibration respeita isLastCalibrationManual: sobrescrita manual é preservada', () => {
+  const v1 = base({ id: 'v1', client: 'CLIENTE-TESTE', startDate: '2025-05-10', endDate: '2025-05-15', lastCalibration: '2024-11-10' });
+  const v2 = base({
+    id: 'v2',
+    client: 'CLIENTE-TESTE',
+    startDate: '2025-11-10',
+    endDate: '2025-11-15',
+    lastCalibration: '2025-08-01', // Sobrescrito manualmente
+    isLastCalibrationManual: true
+  });
+  const v3 = base({
+    id: 'v3',
+    client: 'CLIENTE-TESTE',
+    startDate: '2026-05-10',
+    endDate: '2026-05-15',
+    lastCalibration: '' // Não sobrescrito
+  });
+
+  const synced = syncServicesLastCalibration([v1, v2, v3]);
+
+  // v1 primeira visita preservada
+  assert.equal(synced[0].lastCalibration, '2024-11-10');
+  // v2 com isLastCalibrationManual=true PRESERVA a data manual ('2025-08-01'), em vez de ser forçado para v1.startDate ('2025-05-10')
+  assert.equal(synced[1].lastCalibration, '2025-08-01');
+  // v3 sem flag manual adota a visita anterior v2 ('2025-11-10')
+  assert.equal(synced[2].lastCalibration, '2025-11-10');
 });
 
 

@@ -505,6 +505,78 @@ export const recalculateFutureForecastsFromNewDate = (
 };
 
 /**
+ * Converte data ISO (yyyy-MM-dd) para formato brasileiro (dd/MM/yyyy).
+ * Se a string já estiver no formato dd/MM/yyyy ou for inválida/vazia, lida com segurança.
+ */
+export const isoToBrDate = (isoStr?: string | null): string => {
+  if (!isoStr || typeof isoStr !== 'string') return '';
+  const trimmed = isoStr.trim();
+  if (!trimmed) return '';
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) return trimmed;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
+  if (match) {
+    const [, y, m, d] = match;
+    return `${d}/${m}/${y}`;
+  }
+  const parsed = parseISO(trimmed);
+  if (isValid(parsed)) {
+    return format(parsed, 'dd/MM/yyyy');
+  }
+  return '';
+};
+
+/**
+ * Converte data no formato brasileiro (dd/MM/yyyy) para ISO (yyyy-MM-dd) com validação de calendário.
+ * Retorna null se a data for inválida ou incompleta.
+ * Retorna string vazia '' se a entrada for vazia.
+ */
+export const brDateToIso = (brStr?: string | null): string | null => {
+  if (!brStr || typeof brStr !== 'string') return '';
+  const trimmed = brStr.trim();
+  if (!trimmed) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const parsed = parseISO(trimmed);
+    return isValid(parsed) ? trimmed : null;
+  }
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(trimmed);
+  if (!match) return null;
+  const day = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const year = parseInt(match[3], 10);
+  if (year < 1900 || year > 2100) return null;
+  if (month < 1 || month > 12) return null;
+  const testDate = new Date(year, month - 1, day);
+  if (
+    testDate.getFullYear() !== year ||
+    testDate.getMonth() !== month - 1 ||
+    testDate.getDate() !== day
+  ) {
+    return null;
+  }
+  const isoDay = String(day).padStart(2, '0');
+  const isoMonth = String(month).padStart(2, '0');
+  return `${year}-${isoMonth}-${isoDay}`;
+};
+
+/**
+ * Aplica máscara progressiva de data (DD/MM/AAAA) a partir de qualquer digitação numérica.
+ */
+export const formatDateMask = (value: string): string => {
+  const digits = value.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+};
+
+/**
+ * Verifica se uma string representa uma data válida no formato dd/MM/yyyy.
+ */
+export const isValidBrDate = (brStr: string): boolean => {
+  const iso = brDateToIso(brStr);
+  return iso !== null && iso !== '';
+};
+
+/**
  * Calculates the number of days a service spans.
  */
 export const calculateDuration = (start: string, end: string): number => {
@@ -963,6 +1035,10 @@ export const getPreviousServiceStartDate = (
  */
 export const syncServicesLastCalibration = (services: Service[]): Service[] => {
   return services.map(s => {
+    // Se a última calibração foi definida/sobrescrita manualmente pelo usuário, preserva o valor
+    if (s.isLastCalibrationManual) {
+      return s;
+    }
     const prevStartDate = getPreviousServiceStartDate(s, services);
     if (prevStartDate) {
       if (s.lastCalibration !== prevStartDate) {

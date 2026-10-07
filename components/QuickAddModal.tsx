@@ -3,6 +3,7 @@ import { Modal } from './Modal';
 import { Client } from '../types';
 import { X, Zap, Calendar, Building2 } from 'lucide-react';
 import { format } from 'date-fns/format';
+import { DateInput } from './DateInput';
 
 interface QuickAddModalProps {
   isOpen: boolean;
@@ -79,22 +80,22 @@ export const QuickAddModal: React.FC<QuickAddModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelClass}><Calendar size={12} className="inline mr-1"/> Início</label>
-              <input 
-                type="date" 
+              <DateInput
                 required
-                className={inputClass}
+                inputClassName={inputClass}
                 value={formData.startDate}
-                onChange={e => setFormData({...formData, startDate: e.target.value})}
+                onChange={val => setFormData({...formData, startDate: val})}
+                calendarButtonTitle="Selecionar Data de Início"
               />
             </div>
             <div>
               <label className={labelClass}><Calendar size={12} className="inline mr-1"/> Fim</label>
-              <input 
-                type="date" 
+              <DateInput
                 required
-                className={inputClass}
+                inputClassName={inputClass}
                 value={formData.endDate}
-                onChange={e => setFormData({...formData, endDate: e.target.value})}
+                onChange={val => setFormData({...formData, endDate: val})}
+                calendarButtonTitle="Selecionar Data de Término"
               />
             </div>
           </div>

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Service, ServiceStatus, Technician, Client } from '../types';
-import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getClientConflicts, checkPeriodExceeded, getPreviousServiceStartDate } from '../utils';
+import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getClientConflicts, checkPeriodExceeded, getPreviousServiceStartDate, isoToBrDate } from '../utils';
 import { STATUS_STYLE } from '../constants';
 import { Trash2, AlertCircle, Check, ChevronDown, MessageSquare, X, ArrowUp, ArrowDown, ListFilter, Filter, Repeat, Pencil } from 'lucide-react';
 import { isFuture } from 'date-fns/isFuture';
@@ -8,6 +8,7 @@ import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
 import { getISOWeek } from 'date-fns/getISOWeek';
 import { format } from 'date-fns/format';
+import { DateInput } from './DateInput';
 
 interface ServiceGridProps {
     services: Service[];
@@ -115,7 +116,7 @@ const NUMERIC_COLS = new Set(['week', 'hp', 'ht', 'hv', 'period']);
  * Valor exibido/filtrado de cada coluna. Fonte unica compartilhada com sortValue:
  * se as duas divergissem, o popover listaria um valor e a ordenacao usaria outro.
  */
-const cellValue = (s: Service, key: string, techs: Technician[]): string => {
+const cellValue = (s: Service, key: string, techs: Technician[], allServices?: Service[]): string => {
     switch (key) {
         case 'week': {
             const d = s.startDate ? parseISO(s.startDate) : null;
@@ -128,8 +129,8 @@ const cellValue = (s: Service, key: string, techs: Technician[]): string => {
         case 'hp': return String(s.hp ?? '');
         case 'ht': return String(s.ht ?? '');
         case 'hv': return String(s.hv ?? '');
-        case 'startDate': return s.startDate || '';
-        case 'endDate': return s.endDate || '';
+        case 'startDate': return isoToBrDate(s.startDate);
+        case 'endDate': return isoToBrDate(s.endDate);
         case 'technicianIds':
             return (s.technicianIds || [])
                 .map(id => techs.find(t => t.id === id)?.name || '')
@@ -137,7 +138,14 @@ const cellValue = (s: Service, key: string, techs: Technician[]): string => {
                 .join(', ');
         case 'realized':
             return s.realized === 'sim' ? 'Sim' : 'Não';
-        case 'lastCalibration': return s.lastCalibration || '';
+        case 'lastCalibration': {
+            if (s.lastCalibration) return isoToBrDate(s.lastCalibration);
+            if (allServices) {
+                const prev = getPreviousServiceStartDate(s, allServices);
+                if (prev) return isoToBrDate(prev);
+            }
+            return '';
+        }
         case 'period': return String(s.period ?? 0);
         case 'nextCal': return calculateCalibration(s.startDate, s.lastCalibration, s.period, s.nextCalibration, s.realized).nextCalText;
         case 'status': return s.status;
@@ -152,8 +160,18 @@ const cellValue = (s: Service, key: string, techs: Technician[]): string => {
 
 /** Chave de ordenacao. Datas ISO ordenam bem como texto; dd/MM/yyyy nao, entao
  *  Prox. Calibracao e Previsao ordenam pela data computada, nao pelo texto. */
-const sortValue = (s: Service, key: string, techs: Technician[]): string | number => {
-    if (NUMERIC_COLS.has(key)) return Number(cellValue(s, key, techs)) || 0;
+const sortValue = (s: Service, key: string, techs: Technician[], allServices?: Service[]): string | number => {
+    if (NUMERIC_COLS.has(key)) return Number(cellValue(s, key, techs, allServices)) || 0;
+    if (key === 'startDate') return s.startDate || '';
+    if (key === 'endDate') return s.endDate || '';
+    if (key === 'lastCalibration') {
+        if (s.lastCalibration) return s.lastCalibration;
+        if (allServices) {
+            const prev = getPreviousServiceStartDate(s, allServices);
+            if (prev) return prev;
+        }
+        return '';
+    }
     if (key === 'nextCal') {
         const d = calculateCalibration(s.startDate, s.lastCalibration, s.period, s.nextCalibration, s.realized).forecastDate;
         return d ? d.getTime() : -Infinity;
@@ -163,7 +181,7 @@ const sortValue = (s: Service, key: string, techs: Technician[]): string | numbe
         const d = calculateServiceForecast(s.startDate, s.endDate, s.period, nextCal, s.realized).forecastStartDate;
         return d ? d.getTime() : -Infinity;
     }
-    return cellValue(s, key, techs).toLowerCase();
+    return cellValue(s, key, techs, allServices).toLowerCase();
 };
 
 const BLANK_LABEL = '(vazio)';
@@ -442,7 +460,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
     };
 
     const optionsFor = (key: string): string[] =>
-        Array.from(new Set(services.map(s => cellValue(s, key, technicians) || BLANK_LABEL))).sort((a, b) =>
+        Array.from(new Set(services.map(s => cellValue(s, key, technicians, services) || BLANK_LABEL))).sort((a, b) =>
             a.localeCompare(b, 'pt-BR', { numeric: true })
         );
 
@@ -451,15 +469,15 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
         const filtered = activeKeys.length === 0
             ? services
             : services.filter(s =>
-                activeKeys.every(k => colFilters[k].has(cellValue(s, k, technicians) || BLANK_LABEL))
+                activeKeys.every(k => colFilters[k].has(cellValue(s, k, technicians, services) || BLANK_LABEL))
             );
 
         if (!sortKey || !sortDir) return filtered;
 
         const dir = sortDir === 'asc' ? 1 : -1;
         return [...filtered].sort((a, b) => {
-            const va = sortValue(a, sortKey, technicians);
-            const vb = sortValue(b, sortKey, technicians);
+            const va = sortValue(a, sortKey, technicians, services);
+            const vb = sortValue(b, sortKey, technicians, services);
             if (va < vb) return -1 * dir;
             if (va > vb) return 1 * dir;
             return 0;
@@ -601,11 +619,11 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
             // Validation for Dates
             const startObj = parseISO(service.startDate);
             const endObj = parseISO(service.endDate);
-            const isStartDateValid = service.startDate && isValid(startObj);
-            const isEndDateValid = service.endDate && isValid(endObj);
+            const isStartDateValid = Boolean(service.startDate && isValid(startObj));
+            const isEndDateValid = Boolean(service.endDate && isValid(endObj));
 
             // Logical Validation: End date before start date
-            const isRangeInvalid = isStartDateValid && isEndDateValid && endObj < startObj;
+            const isRangeInvalid = Boolean(isStartDateValid && isEndDateValid && endObj < startObj);
 
             const isSelected = selectedIds.has(service.id);
             // Erro de data vence o destaque de selecao: e um estado que precisa continuar visivel.
@@ -730,12 +748,12 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                                     {calStatus.daysRemaining}d
                                 </span>
                             )}
-                            <input
-                                type="date"
-                                className={`grid-date-input flex-1 h-full bg-transparent text-center text-xs text-slate-700 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none transition-colors px-1 ${!isStartDateValid ? 'bg-red-50 text-red-600 font-bold' : ''} ${!canEdit ? 'cursor-default' : ''}`}
+                            <DateInput
                                 value={service.startDate}
-                                onChange={(e) => onUpdate(service.id, 'startDate', e.target.value)}
-                                readOnly={!canEdit}
+                                onChange={(val) => onUpdate(service.id, 'startDate', val)}
+                                disabled={!canEdit}
+                                isInvalid={!isStartDateValid}
+                                calendarButtonTitle="Selecionar Data de Início"
                             />
                         </div>
                         {!isStartDateValid && (
@@ -747,12 +765,12 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
 
                     {/* End Date Column */}
                     <td className="p-0 border-b border-slate-100 relative h-10 w-32 min-w-[125px]">
-                        <input
-                            type="date"
-                            className={`grid-date-input w-full h-full bg-transparent text-center text-xs text-slate-700 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none transition-colors px-1 ${!isEndDateValid || isRangeInvalid ? 'bg-red-50 text-red-600 font-bold' : ''} ${!canEdit ? 'cursor-default' : ''}`}
+                        <DateInput
                             value={service.endDate}
-                            onChange={(e) => onUpdate(service.id, 'endDate', e.target.value)}
-                            readOnly={!canEdit}
+                            onChange={(val) => onUpdate(service.id, 'endDate', val)}
+                            disabled={!canEdit}
+                            isInvalid={!isEndDateValid || isRangeInvalid}
+                            calendarButtonTitle="Selecionar Data de Término"
                         />
                         {(!isEndDateValid || isRangeInvalid) && (
                             <div className="absolute right-1 top-1/2 -translate-y-1/2 text-red-500 pointer-events-none" title={isRangeInvalid ? "Data final menor que inicial" : "Data Inválida"}>
@@ -799,28 +817,25 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                     {(() => {
                         const prevStartDate = getPreviousServiceStartDate(service, services);
                         const hasPrevious = prevStartDate !== null;
-                        const displayDate = hasPrevious ? prevStartDate : (service.lastCalibration || '');
+                        const isManuallyOverridden = Boolean(service.isLastCalibrationManual && service.lastCalibration);
+                        const displayDate = isManuallyOverridden ? service.lastCalibration : (service.lastCalibration || prevStartDate || '');
+                        const isAdoptingPrevious = !isManuallyOverridden && hasPrevious;
 
                         return (
-                            <td className="p-0 border-b border-slate-100 relative h-10 w-32 min-w-[125px]">
-                                <input
-                                    type="date"
-                                    className={`grid-date-input w-full h-full text-center text-xs outline-none px-1 transition-colors ${
-                                        hasPrevious
-                                            ? 'bg-slate-100/70 text-slate-700 font-semibold cursor-not-allowed border-x border-slate-200/50'
-                                            : 'bg-transparent text-slate-600 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50'
-                                    } ${!canEdit ? 'cursor-default opacity-80' : ''}`}
+                            <td className="p-0 border-b border-slate-100 relative h-10 w-32 min-w-[130px]">
+                                <DateInput
                                     value={displayDate}
-                                    onChange={(e) => {
-                                        if (!hasPrevious) {
-                                            onUpdate(service.id, 'lastCalibration', e.target.value);
-                                        }
-                                    }}
-                                    readOnly={!canEdit || hasPrevious}
+                                    onChange={(val) => onUpdate(service.id, 'lastCalibration', val)}
+                                    disabled={!canEdit}
+                                    className={isAdoptingPrevious ? 'bg-slate-50/70' : ''}
+                                    inputClassName={isAdoptingPrevious ? 'font-semibold text-slate-700' : ''}
+                                    calendarButtonTitle="Selecionar Última Calibração"
                                     title={
-                                        hasPrevious
-                                            ? `Reflete a data de início da visita anterior do mesmo cliente (${isValid(parseISO(prevStartDate)) ? format(parseISO(prevStartDate), 'dd/MM/yyyy') : prevStartDate})`
-                                            : (canEdit ? 'Primeira visita do cliente: informe a última calibração manualmente' : 'Última calibração')
+                                        isAdoptingPrevious
+                                            ? `Adotando automaticamente a data de início da visita anterior (${isoToBrDate(prevStartDate)}). Você pode digitar para sobrescrever.`
+                                            : (isManuallyOverridden && hasPrevious
+                                                ? `Sobrescrito manualmente (visita anterior original era ${isoToBrDate(prevStartDate)}). Apague para restaurar.`
+                                                : (canEdit ? 'Informe a última calibração manualmente' : 'Última calibração'))
                                     }
                                 />
                             </td>
@@ -876,12 +891,11 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                                     {calStatus.daysRemaining}d
                                 </span>
                             )}
-                            <input
-                                type="date"
-                                className={`grid-date-input flex-1 h-full bg-transparent text-center text-xs font-medium text-slate-700 cursor-pointer focus:bg-white focus:ring-1 focus:ring-abb-red/50 outline-none px-1 ${!canEdit ? 'cursor-default' : ''}`}
+                            <DateInput
                                 value={service.nextCalibration || isoDate || ''}
-                                onChange={(e) => onUpdate(service.id, 'nextCalibration', e.target.value)}
-                                readOnly={!canEdit}
+                                onChange={(val) => onUpdate(service.id, 'nextCalibration', val)}
+                                disabled={!canEdit}
+                                calendarButtonTitle="Selecionar Próxima Calibração"
                                 title={nextCalText}
                             />
                         </div>

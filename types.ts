@@ -55,6 +55,7 @@ export interface Service {
 
   // Calibration Logic
   lastCalibration?: string; // ISO Date YYYY-MM-DD
+  isLastCalibrationManual?: boolean; // Indica se lastCalibration foi inserida/sobrescrita manualmente
   nextCalibration?: string; // ISO Date YYYY-MM-DD (data de próxima calibração definida manual ou calculada)
   period?: number; // Months
 

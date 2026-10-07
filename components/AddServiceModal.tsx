@@ -5,7 +5,8 @@ import { X, PlusCircle, Pencil, Trash2, AlertTriangle, Repeat } from 'lucide-rea
 import { format } from 'date-fns/format';
 import { parseISO } from 'date-fns/parseISO';
 import { isValid } from 'date-fns/isValid';
-import { checkPeriodExceeded, getPreviousServiceStartDate, calculateCalibration } from '../utils';
+import { checkPeriodExceeded, getPreviousServiceStartDate, calculateCalibration, isoToBrDate } from '../utils';
+import { DateInput } from './DateInput';
 
 interface AddServiceModalProps {
   isOpen: boolean;
@@ -270,24 +271,24 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelClass}>INÍCIO *</label>
-                  <input
-                    type="date"
+                  <DateInput
                     required
                     disabled={!canEdit}
-                    className={inputClass}
+                    inputClassName={inputClass}
                     value={formData.startDate}
-                    onChange={e => handleChange('startDate', e.target.value)}
+                    onChange={val => handleChange('startDate', val)}
+                    calendarButtonTitle="Selecionar Data de Início"
                   />
                 </div>
                 <div>
                   <label className={labelClass}>FIM *</label>
-                  <input
-                    type="date"
+                  <DateInput
                     required
                     disabled={!canEdit}
-                    className={inputClass}
+                    inputClassName={inputClass}
                     value={formData.endDate}
-                    onChange={e => handleChange('endDate', e.target.value)}
+                    onChange={val => handleChange('endDate', val)}
+                    calendarButtonTitle="Selecionar Data de Término"
                   />
                 </div>
               </div>
@@ -295,25 +296,21 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className={labelClass}>ÚLTIMA CALIBRAÇÃO</label>
-                  <input
-                    type="date"
-                    disabled={!canEdit || !!previousStartDate}
-                    className={`${inputClass} ${previousStartDate ? 'bg-slate-100/80 text-slate-700 font-semibold cursor-not-allowed border-slate-300' : ''}`}
-                    value={previousStartDate || formData.lastCalibration || ''}
-                    onChange={e => {
-                      if (!previousStartDate) {
-                        handleChange('lastCalibration', e.target.value);
-                      }
-                    }}
+                  <DateInput
+                    disabled={!canEdit}
+                    inputClassName={`${inputClass} ${!formData.lastCalibration && previousStartDate ? 'bg-slate-100/80 text-slate-700 font-semibold' : ''}`}
+                    value={formData.lastCalibration || previousStartDate || ''}
+                    onChange={val => handleChange('lastCalibration', val)}
+                    calendarButtonTitle="Selecionar data da Última Calibração"
                     title={
                       previousStartDate
-                        ? `Reflete a data de início da visita anterior do cliente (${isValid(parseISO(previousStartDate)) ? format(parseISO(previousStartDate), 'dd/MM/yyyy') : previousStartDate})`
-                        : 'Primeira visita do cliente: informe a última calibração manualmente'
+                        ? `Sugerido pela visita anterior (${isoToBrDate(previousStartDate)}). Você pode digitar para sobrescrever.`
+                        : 'Informe a última calibração manualmente'
                     }
                   />
-                  {previousStartDate && (
+                  {previousStartDate && !formData.lastCalibration && (
                     <span className="text-[10px] text-slate-500 font-medium mt-1 block">
-                      Reflete a visita anterior do cliente
+                      Reflete a visita anterior do cliente ({isoToBrDate(previousStartDate)})
                     </span>
                   )}
                 </div>
@@ -328,13 +325,13 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                       title="Próxima calibração é 0 quando Realizado é Não"
                     />
                   ) : (
-                    <input
-                      type="date"
+                    <DateInput
                       disabled={!canEdit}
-                      className={inputClass}
+                      inputClassName={inputClass}
                       value={formData.nextCalibration || autoNextCal || ''}
-                      onChange={e => handleChange('nextCalibration', e.target.value)}
-                      title={autoNextCal ? `Calculado automaticamente: ${isValid(parseISO(autoNextCal)) ? format(parseISO(autoNextCal), 'dd/MM/yyyy') : autoNextCal}` : undefined}
+                      onChange={val => handleChange('nextCalibration', val)}
+                      calendarButtonTitle="Selecionar Próxima Calibração"
+                      title={autoNextCal ? `Calculado automaticamente: ${isoToBrDate(autoNextCal)}` : undefined}
                     />
                   )}
                   {formData.realized === 'sim' && !formData.nextCalibration && autoNextCal && (
@@ -527,25 +524,25 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
 
                 <div>
                   <label className={labelClass}>INÍCIO *</label>
-                  <input
-                    type="date"
+                  <DateInput
                     required
-                    readOnly={!canEdit}
-                    className={inputClass}
+                    disabled={!canEdit}
+                    inputClassName={inputClass}
                     value={formData.startDate}
-                    onChange={e => handleChange('startDate', e.target.value)}
+                    onChange={val => handleChange('startDate', val)}
+                    calendarButtonTitle="Selecionar Data de Início"
                   />
                 </div>
 
                 <div>
                   <label className={labelClass}>FIM *</label>
-                  <input
-                    type="date"
+                  <DateInput
                     required
-                    readOnly={!canEdit}
-                    className={inputClass}
+                    disabled={!canEdit}
+                    inputClassName={inputClass}
                     value={formData.endDate}
-                    onChange={e => handleChange('endDate', e.target.value)}
+                    onChange={val => handleChange('endDate', val)}
+                    calendarButtonTitle="Selecionar Data de Término"
                   />
                 </div>
               </div>
@@ -562,12 +559,12 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div>
                     <label className={labelClass}>Última Calibração</label>
-                    <input
-                      type="date"
-                      readOnly={!canEdit}
-                      className={`w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
+                    <DateInput
+                      disabled={!canEdit}
+                      inputClassName={`w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
                       value={formData.lastCalibration || ''}
-                      onChange={e => handleChange('lastCalibration', e.target.value)}
+                      onChange={val => handleChange('lastCalibration', val)}
+                      calendarButtonTitle="Selecionar data da Última Calibração"
                     />
                   </div>
                   <div>
@@ -581,12 +578,12 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                         title="Próxima calibração é 0 quando Realizado é Não"
                       />
                     ) : (
-                      <input
-                        type="date"
-                        readOnly={!canEdit}
-                        className={`w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
+                      <DateInput
+                        disabled={!canEdit}
+                        inputClassName={`w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
                         value={formData.nextCalibration || ''}
-                        onChange={e => handleChange('nextCalibration', e.target.value)}
+                        onChange={val => handleChange('nextCalibration', val)}
+                        calendarButtonTitle="Selecionar data da Próxima Calibração"
                       />
                     )}
                   </div>

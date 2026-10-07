@@ -794,6 +794,11 @@ const App: React.FC = () => {
                     updatedService.realized = 'nao';
                 }
 
+                // Se o usuário editar ou limpar a Última Calibração manualmente
+                if (field === 'lastCalibration') {
+                    updatedService.isLastCalibrationManual = Boolean(value && String(value).trim());
+                }
+
                 return updatedService;
             });
 
