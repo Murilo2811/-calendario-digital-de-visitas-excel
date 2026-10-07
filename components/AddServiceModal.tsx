@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Modal } from './Modal';
 import { Service, ServiceStatus, Technician, Client } from '../types';
 import { X, PlusCircle, Pencil, Trash2, AlertTriangle, Repeat } from 'lucide-react';
 import { format } from 'date-fns/format';
 import { parseISO } from 'date-fns/parseISO';
 import { isValid } from 'date-fns/isValid';
-import { checkPeriodExceeded, getPreviousServiceStartDate } from '../utils';
+import { checkPeriodExceeded, getPreviousServiceStartDate, calculateCalibration } from '../utils';
 
 interface AddServiceModalProps {
   isOpen: boolean;
@@ -88,6 +88,19 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
       )
     : null;
 
+  // Próxima calibração calculada automaticamente com base em Data de Início e Período
+  const autoNextCal = useMemo(() => {
+    if (formData.realized !== 'sim') return '';
+    const res = calculateCalibration(
+      formData.startDate,
+      previousStartDate || formData.lastCalibration,
+      formData.period,
+      undefined,
+      formData.realized
+    );
+    return res.isoDate || '';
+  }, [formData.startDate, formData.lastCalibration, previousStartDate, formData.period, formData.realized]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canEdit) return; // Prevention
@@ -95,9 +108,21 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
       alert('Preencha os campos obrigatórios (Datas, pelo menos um Técnico).');
       return;
     }
+    const calculated = calculateCalibration(
+      formData.startDate,
+      previousStartDate || formData.lastCalibration,
+      formData.period,
+      formData.nextCalibration,
+      formData.realized
+    );
+    const finalNextCal = formData.realized !== 'sim'
+      ? '0'
+      : (formData.nextCalibration || calculated.isoDate || '');
+
     const dataToSave = {
       ...formData,
-      lastCalibration: previousStartDate || formData.lastCalibration || ''
+      lastCalibration: previousStartDate || formData.lastCalibration || '',
+      nextCalibration: finalNextCal
     };
     onSave(dataToSave as Omit<Service, 'id'>);
   };
@@ -307,9 +332,15 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                       type="date"
                       disabled={!canEdit}
                       className={inputClass}
-                      value={formData.nextCalibration || ''}
+                      value={formData.nextCalibration || autoNextCal || ''}
                       onChange={e => handleChange('nextCalibration', e.target.value)}
+                      title={autoNextCal ? `Calculado automaticamente: ${isValid(parseISO(autoNextCal)) ? format(parseISO(autoNextCal), 'dd/MM/yyyy') : autoNextCal}` : undefined}
                     />
+                  )}
+                  {formData.realized === 'sim' && !formData.nextCalibration && autoNextCal && (
+                    <span className="text-[10px] text-emerald-600 font-medium mt-1 block">
+                      Calculado automaticamente (Início + Período)
+                    </span>
                   )}
                 </div>
                 <div>
@@ -317,6 +348,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                   <input
                     type="number"
                     min="0"
+                    max="12"
                     disabled={!canEdit}
                     className={inputClass}
                     value={formData.period ?? 0}
@@ -325,10 +357,10 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                 </div>
               </div>
 
-              {canEdit && onGenerateRecurrence && (
+              {canEdit && onGenerateRecurrence && serviceToEdit && (
                 <div className="flex items-center justify-between p-3 bg-amber-50/70 border border-amber-200 rounded-lg">
                   <div className="text-xs text-amber-900">
-                    <span className="font-bold">Recorrência periódica:</span> Projeta visitas como <span className="font-semibold text-yellow-700 bg-yellow-100 px-1 rounded">Cliente Previsto</span> até 36 meses.
+                    <span className="font-bold">Recorrência periódica:</span> Projeta visitas como <span className="font-semibold text-yellow-700 bg-yellow-100 px-1 rounded">Cliente Previsto</span> até 12 meses.
                   </div>
                   <button
                     type="button"
@@ -563,14 +595,14 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                     <input
                       type="number"
                       min="0"
-                      max="36"
+                      max="12"
                       readOnly={!canEdit}
                       className={`w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
                       value={formData.period}
                       onChange={e => handleChange('period', e.target.value === '' ? 0 : Number(e.target.value))}
                     />
                     <div className="flex flex-wrap gap-1.5 mt-2">
-                      {[0, 6, 12, 18, 24, 30, 36].map(opt => (
+                      {[0, 6, 12].map(opt => (
                         <button
                           key={opt}
                           type="button"
@@ -591,7 +623,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
 
                 {Boolean(formData.period && formData.period > 0) && (() => {
                   const p = formData.period as number;
-                  const count = Math.min(Math.floor(36 / p), 12);
+                  const horizon = p > 6 ? 12 : 6;
+                  const count = Math.max(1, Math.floor(horizon / p));
                   const examples = Array.from({ length: count }, (_, i) => `+${(i + 1) * p}m`).join(', ');
 
                   // Checa se a data inicial escolhida ultrapassa o prazo
@@ -618,7 +651,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                       <div className="flex items-start gap-2 text-xs text-amber-900 bg-amber-100/40 p-2.5 rounded-md">
                         <span className="text-amber-600 font-bold">💡</span>
                         <div className="flex-1">
-                          <span className="font-semibold">Agendamentos futuros automáticos:</span> Ao salvar, o sistema projeta visitas como <span className="font-bold text-yellow-700 bg-yellow-100 px-1 py-0.5 rounded">Cliente Previsto</span> a cada <strong>{p} meses</strong> até o limite de <strong>36 meses</strong> (ex: {examples}).
+                          <span className="font-semibold">Agendamentos futuros automáticos:</span> Ao salvar, o sistema projeta visitas como <span className="font-bold text-yellow-700 bg-yellow-100 px-1 py-0.5 rounded">Cliente Previsto</span> a cada <strong>{p} meses</strong> até o limite de <strong>12 meses</strong> (ex: {examples}).
                         </div>
                       </div>
                     </div>
