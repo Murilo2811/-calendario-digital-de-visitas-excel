@@ -800,6 +800,11 @@ const App: React.FC = () => {
                     updatedService.isLastCalibrationManual = Boolean(value && String(value).trim());
                 }
 
+                // Se o usuário editar a Próxima Calibração, normaliza '0' para string vazia
+                if (field === 'nextCalibration') {
+                    updatedService.nextCalibration = (value && value !== '0') ? value : '';
+                }
+
                 return updatedService;
             });
 

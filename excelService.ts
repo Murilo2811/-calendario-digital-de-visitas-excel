@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
 import { getISOWeek } from 'date-fns/getISOWeek';
-import { isoToBrDate } from './utils';
+import { isoToBrDate, calculateCalibration } from './utils';
 
 // Tipo para o handle do arquivo (navegador)
 type FileHandle = FileSystemFileHandle;
@@ -459,7 +459,9 @@ export const buildWorkbook = (
     'Realizado': s.realized === 'sim' ? 'Sim' : 'Não',
     'Status': s.status,
     'Ultima Calibracao': isoToBrDate(s.lastCalibration),
-    'Proxima Calibracao': s.realized === 'sim' ? isoToBrDate(s.nextCalibration) : '0',
+    'Proxima Calibracao': (s.nextCalibration && s.nextCalibration !== '0' && isValid(parseISO(s.nextCalibration)))
+      ? isoToBrDate(s.nextCalibration)
+      : (isoToBrDate(calculateCalibration(s.startDate, s.lastCalibration, s.period, undefined, s.realized).isoDate) || ''),
     'Periodo': s.period || 0,
     'Comentários': s.comments || '',
   })), SHEET_SERVICES, [20, 8, 25, 12, 15, 25, 6, 6, 6, 12, 12, 20, 12, 22, 15, 15, 8, 35]);

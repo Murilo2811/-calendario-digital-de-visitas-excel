@@ -57,12 +57,15 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       if (serviceToEdit) {
+        const cleanNextCal = (serviceToEdit.nextCalibration && serviceToEdit.nextCalibration !== '0' && isValid(parseISO(serviceToEdit.nextCalibration)))
+          ? serviceToEdit.nextCalibration
+          : '';
         setFormData({
           ...serviceToEdit,
           startDate: serviceToEdit.startDate,
           endDate: serviceToEdit.endDate,
           lastCalibration: serviceToEdit.lastCalibration || '',
-          nextCalibration: serviceToEdit.nextCalibration || '',
+          nextCalibration: cleanNextCal,
           technicianIds: serviceToEdit.technicianIds || [],
           comments: serviceToEdit.comments || '',
           realized: serviceToEdit.realized || 'nao',
@@ -87,9 +90,8 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
       )
     : null;
 
-  // Próxima calibração calculada automaticamente com base em Data de Início e Período
+  // Próxima calibração calculada automaticamente com base em Data de Início e Período (sempre calculada)
   const autoNextCal = useMemo(() => {
-    if (formData.realized !== 'sim') return '';
     const res = calculateCalibration(
       formData.startDate,
       previousStartDate || formData.lastCalibration,
@@ -99,6 +101,9 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
     );
     return res.isoDate || '';
   }, [formData.startDate, formData.lastCalibration, previousStartDate, formData.period, formData.realized]);
+
+  const isCustomNextCal = Boolean(formData.nextCalibration && formData.nextCalibration !== '0' && isValid(parseISO(formData.nextCalibration)));
+  const currentNextCal = isCustomNextCal ? formData.nextCalibration! : (autoNextCal || '');
 
   if (!isOpen) return null;
 
@@ -113,12 +118,12 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
       formData.startDate,
       previousStartDate || formData.lastCalibration,
       formData.period,
-      formData.nextCalibration,
+      isCustomNextCal ? formData.nextCalibration : undefined,
       formData.realized
     );
-    const finalNextCal = formData.realized !== 'sim'
-      ? '0'
-      : (formData.nextCalibration || calculated.isoDate || '');
+    const finalNextCal = isCustomNextCal
+      ? formData.nextCalibration!
+      : (calculated.isoDate || autoNextCal || '');
 
     const dataToSave = {
       ...formData,
@@ -319,28 +324,23 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                 </div>
                 <div>
                   <label className={labelClass}>PRÓXIMA CALIBRAÇÃO</label>
-                  {formData.realized !== 'sim' ? (
-                    <input
-                      type="text"
-                      disabled
-                      className={`${inputClass} text-center font-bold text-slate-400 bg-slate-100 cursor-not-allowed`}
-                      value="0"
-                      title="Próxima calibração é 0 quando Realizado é Não"
-                    />
-                  ) : (
-                    <DateInput
-                      className="!h-auto"
-                      disabled={!canEdit}
-                      inputClassName={inputClass}
-                      value={formData.nextCalibration || autoNextCal || ''}
-                      onChange={val => handleChange('nextCalibration', val)}
-                      calendarButtonTitle="Selecionar Próxima Calibração"
-                      title={autoNextCal ? `Calculado automaticamente: ${isoToBrDate(autoNextCal)}` : undefined}
-                    />
-                  )}
-                  {formData.realized === 'sim' && !formData.nextCalibration && autoNextCal && (
+                  <DateInput
+                    className="!h-auto"
+                    disabled={!canEdit}
+                    inputClassName={inputClass}
+                    value={currentNextCal || ''}
+                    onChange={val => handleChange('nextCalibration', val)}
+                    calendarButtonTitle="Selecionar Próxima Calibração"
+                    title={autoNextCal ? `Calculado automaticamente: ${isoToBrDate(autoNextCal)}` : undefined}
+                  />
+                  {!isCustomNextCal && autoNextCal && (
                     <span className="text-[10px] text-emerald-600 font-medium mt-1 block">
                       Calculado automaticamente (Início + Período)
+                    </span>
+                  )}
+                  {isCustomNextCal && (
+                    <span className="text-[10px] text-slate-500 font-medium mt-1 block">
+                      Definido manualmente
                     </span>
                   )}
                 </div>
@@ -576,24 +576,15 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                   </div>
                   <div>
                     <label className={labelClass}>Próxima Calibração</label>
-                    {formData.realized !== 'sim' ? (
-                      <input
-                        type="text"
-                        disabled
-                        className="w-full bg-slate-100 border border-amber-200 rounded-lg px-3 py-2 text-sm text-center font-bold text-slate-400 cursor-not-allowed outline-none"
-                        value="0"
-                        title="Próxima calibração é 0 quando Realizado é Não"
-                      />
-                    ) : (
-                      <DateInput
-                        className="!h-auto"
-                        disabled={!canEdit}
-                        inputClassName={`w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
-                        value={formData.nextCalibration || ''}
-                        onChange={val => handleChange('nextCalibration', val)}
-                        calendarButtonTitle="Selecionar data da Próxima Calibração"
-                      />
-                    )}
+                    <DateInput
+                      className="!h-auto"
+                      disabled={!canEdit}
+                      inputClassName={`w-full bg-white border border-amber-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 outline-none ${!canEdit ? 'opacity-60 cursor-default' : ''}`}
+                      value={currentNextCal || ''}
+                      onChange={val => handleChange('nextCalibration', val)}
+                      calendarButtonTitle="Selecionar data da Próxima Calibração"
+                      title={autoNextCal ? `Calculado automaticamente: ${isoToBrDate(autoNextCal)}` : undefined}
+                    />
                   </div>
                   <div>
                     <label className={labelClass}>Período de Recorrência (Meses)</label>

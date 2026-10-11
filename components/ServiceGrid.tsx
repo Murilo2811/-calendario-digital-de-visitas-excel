@@ -892,7 +892,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                                 </span>
                             )}
                             <DateInput
-                                value={service.nextCalibration || isoDate || ''}
+                                value={(service.nextCalibration && service.nextCalibration !== '0' && isValid(parseISO(service.nextCalibration))) ? service.nextCalibration : (isoDate || '')}
                                 onChange={(val) => onUpdate(service.id, 'nextCalibration', val)}
                                 disabled={!canEdit}
                                 calendarButtonTitle="Selecionar Próxima Calibração"

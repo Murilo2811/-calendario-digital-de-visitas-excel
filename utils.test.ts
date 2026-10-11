@@ -216,6 +216,12 @@ test('calculateCalibration: aceita data manual e tem precedencia sobre o calculo
   assert.equal(isoDate, '2026-09-25');
 });
 
+test('calculateCalibration: ignora "0" ou valor invalido e calcula a data real com base no inicio e periodo', () => {
+  const { nextCalText, isoDate } = calculateCalibration('2026-01-05', '2025-07-21', 6, '0', 'sim');
+  assert.equal(nextCalText, '05/07/2026');
+  assert.equal(isoDate, '2026-07-05');
+});
+
 test('independência de Status e Realizado: alterar Realizado mantém o Status intacto e vice-versa', () => {
   const item: Service = base({
     startDate: '2026-05-10',

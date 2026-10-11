@@ -586,7 +586,7 @@ export const calculateDuration = (start: string, end: string): number => {
  * Format: dd/MM/yyyy (padrão brasileiro)
  */
 export const calculateCalibration = (startDate?: string, lastCal?: string, period?: number, manualNextCal?: string, realized?: 'sim' | 'nao') => {
-    if (manualNextCal && isValid(parseISO(manualNextCal))) {
+    if (manualNextCal && manualNextCal !== '0' && isValid(parseISO(manualNextCal))) {
         const manualDate = parseISO(manualNextCal);
         return {
             nextCalText: format(manualDate, 'dd/MM/yyyy', { locale: ptBR }),
@@ -691,7 +691,9 @@ export const exportToExcel = (services: Service[], technicians: Technician[]) =>
       'REALIZADO': s.realized === 'sim' ? 'Sim' : 'Não',
       'LAST.CAL': isoToBrDate(s.lastCalibration),
       'PERIOD': s.period || 0,
-      'Proxima calibração': s.realized === 'sim' ? (isoToBrDate(s.nextCalibration) || nextCalText) : '0',
+      'Proxima calibração': (s.nextCalibration && s.nextCalibration !== '0' && isValid(parseISO(s.nextCalibration)))
+        ? isoToBrDate(s.nextCalibration)
+        : (nextCalText && nextCalText !== '***' && nextCalText !== '-' ? nextCalText : ''),
       'Status': s.status,
       'Previsão': forecastText
     };
