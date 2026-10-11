@@ -2,6 +2,9 @@ $desktop = [System.Environment]::GetFolderPath('Desktop')
 $targetDir = Join-Path $desktop 'Calendario Digital ABB - Rede'
 $sourceDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
+Write-Host "Compilando aplicacao de producao..." -ForegroundColor Cyan
+npm run build
+
 Write-Host "Criando pasta de producao em: $targetDir" -ForegroundColor Cyan
 
 # Cria ou limpa pasta de destino de forma segura
