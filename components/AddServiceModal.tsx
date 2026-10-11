@@ -5,7 +5,7 @@ import { X, PlusCircle, Pencil, Trash2, AlertTriangle, Repeat } from 'lucide-rea
 import { format } from 'date-fns/format';
 import { parseISO } from 'date-fns/parseISO';
 import { isValid } from 'date-fns/isValid';
-import { checkPeriodExceeded, getPreviousServiceStartDate, calculateCalibration, isoToBrDate } from '../utils';
+import { checkPeriodExceeded, getPreviousServiceStartDate, calculateCalibration, isoToBrDate, getDetailedConflicts, formatConflictsConfirmMessage } from '../utils';
 import { DateInput } from './DateInput';
 
 interface AddServiceModalProps {
@@ -105,6 +105,18 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   const isCustomNextCal = Boolean(formData.nextCalibration && formData.nextCalibration !== '0' && isValid(parseISO(formData.nextCalibration)));
   const currentNextCal = isCustomNextCal ? formData.nextCalibration! : (autoNextCal || '');
 
+  // Conflitos detalhados de sobreposição em tempo real
+  const activeConflicts = useMemo(() => {
+    if (!formData.startDate || !formData.endDate) return [];
+    return getDetailedConflicts(services, technicians, {
+      id: serviceToEdit?.id,
+      startDate: formData.startDate,
+      endDate: formData.endDate,
+      client: formData.client,
+      technicianIds: formData.technicianIds
+    });
+  }, [services, technicians, serviceToEdit?.id, formData.startDate, formData.endDate, formData.client, formData.technicianIds]);
+
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -114,6 +126,14 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
       alert('Preencha os campos obrigatórios (Datas, pelo menos um Técnico).');
       return;
     }
+
+    if (activeConflicts.length > 0) {
+      const confirmSave = window.confirm(formatConflictsConfirmMessage(activeConflicts));
+      if (!confirmSave) {
+        return;
+      }
+    }
+
     const calculated = calculateCalibration(
       formData.startDate,
       previousStartDate || formData.lastCalibration,
@@ -228,6 +248,68 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
+
+          {activeConflicts.length > 0 && (
+            <div className="bg-amber-50/90 border border-amber-300 rounded-xl p-4 space-y-3 shadow-xs">
+              <div className="flex items-center gap-2.5 text-amber-900">
+                <div className="bg-amber-200/90 p-1.5 rounded-lg text-amber-800 shrink-0">
+                  <AlertTriangle size={18} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-amber-950 uppercase tracking-wide">
+                    ⚠️ Atenção: Sobreposição de Agenda ({activeConflicts.length} {activeConflicts.length === 1 ? 'conflito' : 'conflitos'})
+                  </h4>
+                  <p className="text-[11px] text-amber-800">
+                    O período selecionado coincide com outra(s) atividade(s) já agendada(s):
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {activeConflicts.map((c) => (
+                  <div key={c.id} className="bg-white border border-amber-200 rounded-lg p-3 text-xs shadow-2xs space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                        c.type === 'TECHNICIAN'
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                          : 'bg-orange-100 text-orange-900 border border-orange-300'
+                      }`}>
+                        {c.type === 'TECHNICIAN' ? 'Sobreposição de Técnico' : 'Sobreposição de Empresa'}
+                      </span>
+                      {c.os && (
+                        <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                          OS: {c.os}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-0.5">
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-slate-500 font-medium">Empresa:</span>
+                        <span className="text-slate-900 font-bold">{c.client}</span>
+                      </div>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-slate-500 font-medium">Técnico:</span>
+                        <span className="text-slate-900 font-bold">{c.techName}</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-1.5 border-t border-amber-100/80 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                      <div>
+                        <span className="text-amber-800 font-bold">Período sobreposto: </span>
+                        <span className="font-bold text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-200">
+                          {c.formattedOverlapPeriod}
+                        </span>
+                      </div>
+                      <div className="text-slate-500 text-[10px]">
+                        (Visita completa: <span className="font-medium text-slate-700">{c.formattedVisitPeriod}</span>)
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {serviceToEdit ? (
             <div className="space-y-4">

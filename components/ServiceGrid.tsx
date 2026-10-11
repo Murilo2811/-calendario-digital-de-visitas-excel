@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Service, ServiceStatus, Technician, Client } from '../types';
-import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getClientConflicts, checkPeriodExceeded, getPreviousServiceStartDate, isoToBrDate } from '../utils';
+import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getDetailedConflicts, formatConflictsTooltipText, checkPeriodExceeded, getPreviousServiceStartDate, isoToBrDate } from '../utils';
 import { STATUS_STYLE } from '../constants';
 import { Trash2, AlertCircle, Check, ChevronDown, MessageSquare, X, ArrowUp, ArrowDown, ListFilter, Filter, Repeat, Pencil } from 'lucide-react';
 import { isFuture } from 'date-fns/isFuture';
@@ -633,8 +633,9 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                     ? 'bg-abb-red/10 hover:bg-abb-red/15'
                     : 'hover:bg-abb-red/5';
 
-            const clientConflicts = getClientConflicts(services, service.client, service.startDate, service.endDate, service.id);
-            const hasClientOverlap = clientConflicts.length > 0;
+            const detailedConflicts = getDetailedConflicts(services, technicians, service);
+            const hasOverlap = detailedConflicts.length > 0;
+            const overlapTooltip = formatConflictsTooltipText(detailedConflicts);
             const calStatus = getCalibrationStatus(service, services);
             // Badge de vencimento aparece quando há calibração prevista ou realizada fora do prazo
             const showCalBadge = (calStatus.isForecast || calStatus.level === 'OVERDUE_REALIZED') && !!(service.nextCalibration || (service.period && service.period > 0));
@@ -662,8 +663,8 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
 
                     <td className="p-0 h-10 border-b border-slate-100 relative">
                         <div className="flex items-center h-full">
-                            {hasClientOverlap && (
-                                <span className="pl-1 text-amber-500 font-bold" title={`Sobreposição: ${clientConflicts.length} outra(s) visita(s) para ${service.client} neste mesmo intervalo de datas!`}>
+                            {hasOverlap && (
+                                <span className="pl-1 text-amber-500 font-bold cursor-help" title={overlapTooltip.trim()}>
                                     ⚠️
                                 </span>
                             )}

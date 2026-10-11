@@ -102,6 +102,207 @@ export const findAvailableTechnicians = (
   });
 };
 
+export interface DateOverlapInterval {
+  overlapStart: string; // YYYY-MM-DD
+  overlapEnd: string;   // YYYY-MM-DD
+}
+
+/**
+ * Retorna o intervalo exato de intersecção entre dois períodos de datas.
+ * Se não houver intersecção, retorna null.
+ */
+export const getOverlapInterval = (
+  start1Str?: string,
+  end1Str?: string,
+  start2Str?: string,
+  end2Str?: string
+): DateOverlapInterval | null => {
+  if (!start1Str || !end1Str || !start2Str || !end2Str) return null;
+  try {
+    const s1 = parseISO(start1Str);
+    const e1 = parseISO(end1Str);
+    const s2 = parseISO(start2Str);
+    const e2 = parseISO(end2Str);
+
+    if (!isValid(s1) || !isValid(e1) || !isValid(s2) || !isValid(e2)) {
+      return null;
+    }
+
+    const range1Start = startOfDay(s1 <= e1 ? s1 : e1);
+    const range1End = startOfDay(s1 <= e1 ? e1 : s1);
+    const range2Start = startOfDay(s2 <= e2 ? s2 : e2);
+    const range2End = startOfDay(s2 <= e2 ? e2 : s2);
+
+    const overlapStart = range1Start > range2Start ? range1Start : range2Start;
+    const overlapEnd = range1End < range2End ? range1End : range2End;
+
+    if (overlapStart <= overlapEnd) {
+      return {
+        overlapStart: format(overlapStart, 'yyyy-MM-dd'),
+        overlapEnd: format(overlapEnd, 'yyyy-MM-dd')
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+export interface OverlapConflictDetail {
+  id: string;
+  type: 'TECHNICIAN' | 'CLIENT';
+  title: string;
+  techId?: string;
+  techName: string;
+  client: string;
+  conflictingService: Service;
+  overlapStartDate: string;
+  overlapEndDate: string;
+  formattedOverlapPeriod: string; // "DD/MM/YYYY a DD/MM/YYYY"
+  formattedVisitPeriod: string;   // "DD/MM/YYYY a DD/MM/YYYY"
+  os?: string;
+  summaryText: string;
+}
+
+/**
+ * Retorna todos os conflitos detalhados de sobreposição (de técnico e de empresa/cliente),
+ * indicando exatamente o período de sobreposição (intersecção), período total da visita conflitante,
+ * qual a empresa e qual(is) técnico(s).
+ */
+export const getDetailedConflicts = (
+  services: Service[],
+  technicians: Technician[],
+  current: {
+    id?: string;
+    startDate?: string;
+    endDate?: string;
+    client?: string;
+    technicianIds?: string[];
+  }
+): OverlapConflictDetail[] => {
+  const { id, startDate, endDate, client, technicianIds } = current;
+  if (!startDate || !endDate) return [];
+
+  const details: OverlapConflictDetail[] = [];
+  const seenServiceKeys = new Set<string>();
+
+  const getTechName = (tId: string) => {
+    const t = technicians.find(item => item.id === tId);
+    return t ? t.name : tId;
+  };
+
+  // 1. Conflitos de Técnico (mesmo técnico em outra atividade no período)
+  if (technicianIds && technicianIds.length > 0) {
+    technicianIds.forEach(tId => {
+      const techConflicts = getTechnicianConflicts(services, tId, startDate, endDate, id);
+      const techName = getTechName(tId);
+
+      techConflicts.forEach(conf => {
+        const key = `tech-${tId}-${conf.id}`;
+        if (!seenServiceKeys.has(key)) {
+          seenServiceKeys.add(key);
+          const interval = getOverlapInterval(startDate, endDate, conf.startDate, conf.endDate);
+          const overlapStartFmt = interval ? isoToBrDate(interval.overlapStart) : isoToBrDate(startDate);
+          const overlapEndFmt = interval ? isoToBrDate(interval.overlapEnd) : isoToBrDate(endDate);
+          const visitStartFmt = isoToBrDate(conf.startDate);
+          const visitEndFmt = isoToBrDate(conf.endDate);
+
+          const formattedOverlapPeriod = `${overlapStartFmt} a ${overlapEndFmt}`;
+          const formattedVisitPeriod = `${visitStartFmt} a ${visitEndFmt}`;
+
+          details.push({
+            id: key,
+            type: 'TECHNICIAN',
+            title: `Sobreposição de Técnico (${techName})`,
+            techId: tId,
+            techName,
+            client: conf.client,
+            conflictingService: conf,
+            overlapStartDate: interval?.overlapStart || startDate,
+            overlapEndDate: interval?.overlapEnd || endDate,
+            formattedOverlapPeriod,
+            formattedVisitPeriod,
+            os: conf.os,
+            summaryText: `Técnico: ${techName} | Empresa: ${conf.client} | Sobreposição: ${formattedOverlapPeriod} (Visita conflitante: ${formattedVisitPeriod})${conf.os ? ` | OS: ${conf.os}` : ''}`
+          });
+        }
+      });
+    });
+  }
+
+  // 2. Conflitos de Empresa/Cliente (mesma empresa com outra atividade no período)
+  if (client && client.trim()) {
+    const clientConflicts = getClientConflicts(services, client, startDate, endDate, id);
+    clientConflicts.forEach(conf => {
+      const isAlreadyTechConflict = technicianIds?.some(tId => seenServiceKeys.has(`tech-${tId}-${conf.id}`));
+      const key = `client-${conf.id}`;
+      if (!seenServiceKeys.has(key)) {
+        seenServiceKeys.add(key);
+
+        const interval = getOverlapInterval(startDate, endDate, conf.startDate, conf.endDate);
+        const overlapStartFmt = interval ? isoToBrDate(interval.overlapStart) : isoToBrDate(startDate);
+        const overlapEndFmt = interval ? isoToBrDate(interval.overlapEnd) : isoToBrDate(endDate);
+        const visitStartFmt = isoToBrDate(conf.startDate);
+        const visitEndFmt = isoToBrDate(conf.endDate);
+
+        const formattedOverlapPeriod = `${overlapStartFmt} a ${overlapEndFmt}`;
+        const formattedVisitPeriod = `${visitStartFmt} a ${visitEndFmt}`;
+
+        const confTechNames = (conf.technicianIds || [])
+          .map(tId => getTechName(tId))
+          .join(', ') || 'Sem técnico';
+
+        details.push({
+          id: key,
+          type: 'CLIENT',
+          title: `Sobreposição de Empresa (${conf.client})`,
+          techName: confTechNames,
+          client: conf.client,
+          conflictingService: conf,
+          overlapStartDate: interval?.overlapStart || startDate,
+          overlapEndDate: interval?.overlapEnd || endDate,
+          formattedOverlapPeriod,
+          formattedVisitPeriod,
+          os: conf.os,
+          summaryText: isAlreadyTechConflict
+            ? `Empresa: ${conf.client} (mesmo técnico e cliente) | Técnico(s): ${confTechNames} | Sobreposição: ${formattedOverlapPeriod} (Visita conflitante: ${formattedVisitPeriod})${conf.os ? ` | OS: ${conf.os}` : ''}`
+            : `Empresa: ${conf.client} | Técnico(s): ${confTechNames} | Sobreposição: ${formattedOverlapPeriod} (Visita conflitante: ${formattedVisitPeriod})${conf.os ? ` | OS: ${conf.os}` : ''}`
+        });
+      }
+    });
+  }
+
+  return details;
+};
+
+/**
+ * Formata os conflitos para exibição em tooltip HTML (title attribute).
+ */
+export const formatConflictsTooltipText = (conflicts: OverlapConflictDetail[]): string => {
+  if (!conflicts || conflicts.length === 0) return '';
+  const lines = [`⚠️ SOBREPOSIÇÃO DETECTADA (${conflicts.length}):`];
+  conflicts.forEach((c) => {
+    lines.push(`• ${c.summaryText}`);
+  });
+  return '\n' + lines.join('\n');
+};
+
+/**
+ * Formata mensagem para janela de confirmação (confirm) antes de salvar com sobreposição.
+ */
+export const formatConflictsConfirmMessage = (conflicts: OverlapConflictDetail[]): string => {
+  if (!conflicts || conflicts.length === 0) return '';
+  const lines = [
+    '⚠️ ATENÇÃO: SOBREPOSIÇÃO DE AGENDA DETECTADA!\n',
+    `Esta atividade possui ${conflicts.length} conflito(s) de sobreposição com agendamentos existentes:\n`
+  ];
+  conflicts.forEach((c, idx) => {
+    lines.push(`${idx + 1}. ${c.summaryText}`);
+  });
+  lines.push('\nDeseja confirmar e salvar mesmo com essa sobreposição?');
+  return lines.join('\n');
+};
+
 export type CalibrationAlertLevel = 'EXPIRED' | 'EXPIRING_SOON' | 'OK' | 'NONE' | 'OVERDUE_REALIZED';
 
 export interface CalibrationStatusInfo {

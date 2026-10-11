@@ -2,7 +2,7 @@
 // Roda sem framework: `npm test` (node:test + node:assert, type stripping nativo do Node 24).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod, calculateServiceForecast, applyBatchServiceUpdates, getBrazilianHoliday, isNonWorkingDay, generateNextCalibrationService, getPreviousServiceStartDate, syncServicesLastCalibration, isoToBrDate, brDateToIso, formatDateMask, isValidBrDate } from './utils.ts';
+import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod, calculateServiceForecast, applyBatchServiceUpdates, getBrazilianHoliday, isNonWorkingDay, generateNextCalibrationService, getPreviousServiceStartDate, syncServicesLastCalibration, isoToBrDate, brDateToIso, formatDateMask, isValidBrDate, getOverlapInterval, getDetailedConflicts, formatConflictsTooltipText, formatConflictsConfirmMessage } from './utils.ts';
 import { ServiceStatus, TechType } from './types.ts';
 import type { Service, Technician } from './types.ts';
 
@@ -1073,4 +1073,111 @@ test('atividade concluída fora do prazo mostra OVERDUE_REALIZED com quantidade 
   assert.equal(status.daysDelayed, 5, 'Deve acusar exatamente 5 dias de atraso');
   assert.ok(status.delayReason?.includes('5 dia(s) de atraso'));
 });
+
+test('getOverlapInterval: calcula o período exato de intersecção entre duas datas', () => {
+  // Intervalo 1: 10/10 a 20/10 | Intervalo 2: 15/10 a 25/10 -> Intersecção: 15/10 a 20/10
+  const overlap = getOverlapInterval('2026-10-10', '2026-10-20', '2026-10-15', '2026-10-25');
+  assert.deepEqual(overlap, {
+    overlapStart: '2026-10-15',
+    overlapEnd: '2026-10-20'
+  });
+
+  // Sem sobreposição (datas disjuntas)
+  const noOverlap = getOverlapInterval('2026-10-10', '2026-10-12', '2026-10-13', '2026-10-15');
+  assert.equal(noOverlap, null);
+
+  // Intervalo totalmente contido: 12/10 a 14/10 dentro de 10/10 a 20/10
+  const contained = getOverlapInterval('2026-10-10', '2026-10-20', '2026-10-12', '2026-10-14');
+  assert.deepEqual(contained, {
+    overlapStart: '2026-10-12',
+    overlapEnd: '2026-10-14'
+  });
+});
+
+test('getDetailedConflicts: identifica técnico, empresa e período exato de sobreposição', () => {
+  const service1: Service = {
+    ...base(),
+    id: 's1',
+    client: 'Empresa Alpha',
+    startDate: '2026-10-10',
+    endDate: '2026-10-20',
+    technicianIds: ['t1'],
+    os: 'OS-100'
+  };
+
+  const service2: Service = {
+    ...base(),
+    id: 's2',
+    client: 'Empresa Beta',
+    startDate: '2026-10-15',
+    endDate: '2026-10-25',
+    technicianIds: ['t1'],
+    os: 'OS-200'
+  };
+
+  // Verificando conflitos a partir da atividade de Empresa Beta
+  const conflicts = getDetailedConflicts([service1, service2], techs, {
+    id: 's2',
+    startDate: '2026-10-15',
+    endDate: '2026-10-25',
+    client: 'Empresa Beta',
+    technicianIds: ['t1']
+  });
+
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].type, 'TECHNICIAN');
+  assert.equal(conflicts[0].techName, 'ES');
+  assert.equal(conflicts[0].client, 'Empresa Alpha');
+  assert.equal(conflicts[0].formattedOverlapPeriod, '15/10/2026 a 20/10/2026');
+  assert.equal(conflicts[0].formattedVisitPeriod, '10/10/2026 a 20/10/2026');
+  assert.equal(conflicts[0].os, 'OS-100');
+  assert.ok(conflicts[0].summaryText.includes('Técnico: ES'));
+  assert.ok(conflicts[0].summaryText.includes('Empresa: Empresa Alpha'));
+  assert.ok(conflicts[0].summaryText.includes('Sobreposição: 15/10/2026 a 20/10/2026'));
+  assert.ok(conflicts[0].summaryText.includes('Visita conflitante: 10/10/2026 a 20/10/2026'));
+
+  // Testando formatação de tooltip e confirm
+  const tooltip = formatConflictsTooltipText(conflicts);
+  assert.ok(tooltip.includes('⚠️ SOBREPOSIÇÃO DETECTADA (1):'));
+  assert.ok(tooltip.includes('Técnico: ES'));
+
+  const confirmMsg = formatConflictsConfirmMessage(conflicts);
+  assert.ok(confirmMsg.includes('SOBREPOSIÇÃO DE AGENDA DETECTADA!'));
+  assert.ok(confirmMsg.includes('Empresa: Empresa Alpha'));
+});
+
+test('getDetailedConflicts: identifica sobreposição de mesma empresa com técnicos diferentes', () => {
+  const s1: Service = {
+    ...base(),
+    id: 's1',
+    client: 'Petrobras',
+    startDate: '2026-11-01',
+    endDate: '2026-11-10',
+    technicianIds: ['t1']
+  };
+
+  const s2: Service = {
+    ...base(),
+    id: 's2',
+    client: 'Petrobras',
+    startDate: '2026-11-05',
+    endDate: '2026-11-15',
+    technicianIds: ['t2']
+  };
+
+  const conflicts = getDetailedConflicts([s1, s2], techs, {
+    id: 's2',
+    startDate: '2026-11-05',
+    endDate: '2026-11-15',
+    client: 'Petrobras',
+    technicianIds: ['t2']
+  });
+
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].type, 'CLIENT');
+  assert.equal(conflicts[0].client, 'Petrobras');
+  assert.equal(conflicts[0].techName, 'ES');
+  assert.equal(conflicts[0].formattedOverlapPeriod, '05/11/2026 a 10/11/2026');
+});
+
 

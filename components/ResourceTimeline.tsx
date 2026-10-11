@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Service, ServiceStatus, Technician, TechType } from '../types';
-import { getDaysInRange, getCalibrationStatus, getClientConflicts, checkPeriodExceeded, isNonWorkingDay } from '../utils';
+import { getDaysInRange, getCalibrationStatus, getDetailedConflicts, formatConflictsTooltipText, checkPeriodExceeded, isNonWorkingDay } from '../utils';
 import { STATUS_STYLE } from '../constants';
 import { addDays } from 'date-fns/addDays';
 import { areIntervalsOverlapping } from 'date-fns/areIntervalsOverlapping';
@@ -285,9 +285,15 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
         const periodCheck = checkPeriodExceeded(service, service.startDate, services);
         const isPeriodExceeded = periodCheck.isExceeded;
 
-        // Check if there are other services for the same client overlapping with this one
-        const clientConflicts = getClientConflicts(services, service.client, service.startDate, service.endDate, service.id);
-        const hasClientOverlap = clientConflicts.length > 0;
+        // Check if there are overlaps (technician or client)
+        const detailedConflicts = getDetailedConflicts(services, technicians, {
+            id: service.id,
+            startDate: service.startDate,
+            endDate: service.endDate,
+            client: service.client,
+            technicianIds: service.technicianIds && service.technicianIds.length > 0 ? service.technicianIds : [sourceTechId]
+        });
+        const hasOverlap = detailedConflicts.length > 0;
 
         const isCompleted = service.realized === 'sim';
 
@@ -305,10 +311,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
             calTooltipExtra = `\n⏰ CALIBRAÇÃO VENCE EM ${calStatus.daysRemaining} DIAS (${calStatus.targetDateText})`;
         }
 
-        let overlapTooltipExtra = '';
-        if (hasClientOverlap) {
-            overlapTooltipExtra = `\n⚠️ SOBREPOSIÇÃO DE CLIENTE: Há ${clientConflicts.length} outra(s) visita(s) agendada(s) para este cliente no mesmo período.`;
-        }
+        const overlapTooltipExtra = formatConflictsTooltipText(detailedConflicts);
 
         const commentsTooltipExtra = service.comments && service.comments.trim() ? `\n📝 Comentários: ${service.comments}` : '';
         const tooltipText = `Cliente: ${service.client}\nOS: ${service.os || 'N/A'}\nDescrição: ${service.description || 'N/A'}\nPeríodo: ${format(parseISO(service.startDate), 'dd/MM/yy')} - ${format(parseISO(service.endDate), 'dd/MM/yy')}${commentsTooltipExtra}${calTooltipExtra}${overlapTooltipExtra}`;
@@ -324,7 +327,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
             ? ((isOverdueRealized || isPeriodExceeded) ? 'border-amber-400' : 'border-white')
             : (isPeriodExceeded
                 ? 'ring-2 ring-red-500 border-red-600'
-                : (hasClientOverlap ? 'ring-2 ring-amber-400 border-amber-500' : 'border-white'));
+                : (hasOverlap ? 'ring-2 ring-amber-400 border-amber-500' : 'border-white'));
 
         return (
             <div
@@ -344,8 +347,8 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                 title={tooltipText}
             >
                 <div className="flex items-center gap-1 min-w-0">
-                    {hasClientOverlap && (
-                        <span className="flex-shrink-0 text-amber-300 text-[10px] font-bold" title="Sobreposição de Cliente">⚠️</span>
+                    {hasOverlap && (
+                        <span className="flex-shrink-0 text-amber-300 text-[10px] font-bold" title="Sobreposição Detectada">⚠️</span>
                     )}
                     {service.comments && service.comments.trim() && (
                         <span className="flex-shrink-0 text-[10px]" title={`Comentário: ${service.comments}`}>💬</span>
