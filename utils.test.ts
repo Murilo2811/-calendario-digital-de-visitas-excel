@@ -2,7 +2,7 @@
 // Roda sem framework: `npm test` (node:test + node:assert, type stripping nativo do Node 24).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod, calculateServiceForecast, applyBatchServiceUpdates, getBrazilianHoliday, isNonWorkingDay, generateNextCalibrationService, getPreviousServiceStartDate, syncServicesLastCalibration, isoToBrDate, brDateToIso, formatDateMask, isValidBrDate, getOverlapInterval, getDetailedConflicts, formatConflictsTooltipText, formatConflictsConfirmMessage } from './utils.ts';
+import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod, calculateServiceForecast, applyBatchServiceUpdates, getBrazilianHoliday, isNonWorkingDay, generateNextCalibrationService, getPreviousServiceStartDate, syncServicesLastCalibration, isoToBrDate, brDateToIso, formatDateMask, isValidBrDate, getOverlapInterval, getDetailedConflicts, formatConflictsTooltipText, formatConflictsConfirmMessage, findConflictResolutionSuggestions } from './utils.ts';
 import { ServiceStatus, TechType } from './types.ts';
 import type { Service, Technician } from './types.ts';
 
@@ -1179,5 +1179,49 @@ test('getDetailedConflicts: identifica sobreposição de mesma empresa com técn
   assert.equal(conflicts[0].techName, 'ES');
   assert.equal(conflicts[0].formattedOverlapPeriod, '05/11/2026 a 10/11/2026');
 });
+
+test('findConflictResolutionSuggestions: propõe troca de técnico, antecipação e adiamento da data mais próxima', () => {
+  // s1: Técnico t1 em Empresa Alpha de 15/10/2026 a 20/10/2026
+  const s1: Service = {
+    ...base(),
+    id: 's1',
+    client: 'Empresa Alpha',
+    startDate: '2026-10-15',
+    endDate: '2026-10-20',
+    technicianIds: ['t1']
+  };
+
+  // Atividade sendo agendada / movida: de 15/10/2026 a 19/10/2026 para Técnico t1 em Empresa Beta
+  const suggestions = findConflictResolutionSuggestions(
+    [s1],
+    techs, // techs contém t1 (ES) e t2 (LF)
+    {
+      id: 'new-service',
+      startDate: '2026-10-15',
+      endDate: '2026-10-19',
+      client: 'Empresa Beta',
+      technicianIds: ['t1']
+    }
+  );
+
+  assert.equal(suggestions.hasConflict, true);
+  assert.equal(suggestions.durationDays, 5); // 15 a 19 = 5 dias
+
+  // 1. Troca de técnico: Técnico t2 (LF) está livre no período 15 a 19
+  assert.equal(suggestions.techSwapOptions.length, 1);
+  assert.equal(suggestions.techSwapOptions[0].id, 't2');
+  assert.equal(suggestions.techSwapOptions[0].name, 'LF');
+
+  // 2. Antecipação da data mais próxima: deve encontrar dias livres anteriores iniciando em dia útil
+  assert.ok(suggestions.earlierOption !== null);
+  assert.ok(suggestions.earlierOption!.startDate < '2026-10-15');
+  assert.equal(suggestions.earlierOption!.availableTechs.length > 0, true);
+
+  // 3. Adiamento da data mais próxima: deve encontrar dias livres posteriores iniciando em dia útil
+  assert.ok(suggestions.laterOption !== null);
+  assert.ok(suggestions.laterOption!.startDate > '2026-10-15');
+  assert.equal(suggestions.laterOption!.availableTechs.length > 0, true);
+});
+
 
 

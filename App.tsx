@@ -13,6 +13,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { CalibrationAlertsModal } from './components/CalibrationAlertsModal';
 import { UnsavedChangesModal } from './components/UnsavedChangesModal';
 import { RecurrenceModal } from './components/RecurrenceModal';
+import { ConflictResolutionModal } from './components/ConflictResolutionModal';
 import { createDefaultAdmin, canEdit, canManage, canExport } from './authService';
 import {
     calculateDuration,
@@ -30,7 +31,10 @@ import {
     generateNextCalibrationService,
     getPreviousServiceStartDate,
     syncServicesLastCalibration,
-    cleanObsoleteCalibrationForecasts
+    cleanObsoleteCalibrationForecasts,
+    findConflictResolutionSuggestions,
+    ConflictResolutionSuggestion,
+    isoToBrDate
 } from './utils';
 import {
     openExcelFile,
@@ -113,6 +117,17 @@ const App: React.FC = () => {
     const [pendingExitAction, setPendingExitAction] = useState<'logout' | 'disconnect' | null>(null);
     const [editingService, setEditingService] = useState<Service | null>(null);
     const [recurrenceService, setRecurrenceService] = useState<Service | null>(null);
+    const [conflictModalState, setConflictModalState] = useState<{
+        service: Service;
+        suggestions: ConflictResolutionSuggestion;
+        pendingAction: 'move' | 'resize';
+        pendingData: {
+            newStartDate: string;
+            newEndDate: string;
+            newTechId?: string;
+            oldTechId?: string;
+        };
+    } | null>(null);
 
     const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
     const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth());
@@ -963,6 +978,83 @@ const App: React.FC = () => {
         showToast(`Periodicidade (${safePeriod} meses) e próxima calibração salvas com sucesso!`);
     };
 
+    const executeServiceMove = (
+        id: string,
+        newStartDate: string,
+        newEndDate: string,
+        targetTechId: string,
+        oldTechId?: string
+    ) => {
+        const serviceToMove = services.find(s => s.id === id);
+        if (!serviceToMove) return;
+
+        const newStart = parseISO(newStartDate);
+        const newWeek = getISOWeek(newStart);
+
+        const currentTechs = serviceToMove.technicianIds || [];
+        let newTechs = [...currentTechs];
+
+        if (oldTechId && targetTechId && oldTechId !== targetTechId) {
+            newTechs = newTechs.filter(t => t !== oldTechId);
+            if (!newTechs.includes(targetTechId)) {
+                newTechs.push(targetTechId);
+            }
+        } else if (!currentTechs.includes(targetTechId)) {
+            newTechs.push(targetTechId);
+        }
+
+        recordSnapshot();
+        setServices(prev => {
+            const updatedMoved = prev.map(s => {
+                if (s.id !== id) return s;
+
+                const updatedService: Service = {
+                    ...s,
+                    startDate: newStartDate,
+                    endDate: newEndDate,
+                    technicianIds: newTechs,
+                    week: newWeek
+                };
+
+                return updatedService;
+            });
+
+            const targetUpdated = updatedMoved.find(s => s.id === id);
+            if (targetUpdated && targetUpdated.period && targetUpdated.period > 0) {
+                // Reajusta em cascata todas as agendas futuras do cliente a partir da nova data
+                const recalculated = recalculateFutureForecastsFromNewDate(targetUpdated, updatedMoved, technicians);
+                return syncServicesLastCalibration(recalculated);
+            }
+
+            return syncServicesLastCalibration(updatedMoved);
+        });
+    };
+
+    const executeServiceResize = (
+        id: string,
+        newStartDate: string,
+        newEndDate: string,
+        newTechIds?: string[]
+    ) => {
+        const newStart = parseISO(newStartDate);
+        if (!isValid(newStart)) return;
+
+        recordSnapshot();
+        setServices(prev => syncServicesLastCalibration(prev.map(s => {
+            if (s.id !== id) return s;
+
+            const updatedService: Service = {
+                ...s,
+                startDate: newStartDate,
+                endDate: newEndDate,
+                technicianIds: newTechIds || s.technicianIds,
+                week: getISOWeek(newStart),
+            };
+
+            return updatedService;
+        })));
+    };
+
     const handleServiceMove = (id: string, newStartDate: string, newTechId: string, oldTechId: string) => {
         const serviceToMove = services.find(s => s.id === id);
         if (!serviceToMove) return;
@@ -974,7 +1066,6 @@ const App: React.FC = () => {
 
             const newEnd = addDays(newStart, duration - 1);
             const newEndDate = format(newEnd, 'yyyy-MM-dd');
-            const newWeek = getISOWeek(newStart);
 
             // 1. Checar se o reagendamento ultrapassa a data limite da periodicidade (atraso)
             const periodCheck = checkPeriodExceeded(serviceToMove, newStartDate, services);
@@ -993,82 +1084,44 @@ const App: React.FC = () => {
                 }
             }
 
-            let targetTechId = newTechId;
-
-            // 2. Checar se o técnico de destino está em conflito nesta nova data
-            const conflicts = getTechnicianConflicts(services, newTechId, newStartDate, newEndDate, id);
-
-            if (conflicts.length > 0) {
-                const conflictTech = technicians.find(t => t.id === newTechId);
-                const techName = conflictTech ? `${conflictTech.name} (${conflictTech.fullName})` : 'selecionado';
-
-                // Procurar técnicos livres neste período
-                const freeTechs = findAvailableTechnicians(technicians, services, newStartDate, newEndDate, id);
-
-                if (freeTechs.length > 0) {
-                    const suggestedTech = freeTechs[0];
-                    const accepted = window.confirm(
-                        `⚠️ SOBREPOSIÇÃO DETECTADA!\n\n` +
-                        `O técnico ${techName} já possui ${conflicts.length} atividade(s) agendada(s) entre ${format(newStart, 'dd/MM/yyyy')} e ${format(newEnd, 'dd/MM/yyyy')}.\n\n` +
-                        `Deseja realocar automaticamente esta atividade para o técnico disponível "${suggestedTech.name} (${suggestedTech.fullName})"?`
-                    );
-
-                    if (accepted) {
-                        targetTechId = suggestedTech.id;
-                        showToast(`Atividade realocada para o técnico ${suggestedTech.name}`);
-                    } else {
-                        showToast('Movimentação cancelada para evitar sobreposição.');
-                        return;
-                    }
-                } else {
-                    // Não há técnicos livres -> Bloqueia a sobreposição
-                    alert(
-                        `🚫 SOBREPOSIÇÃO BLOQUEADA!\n\n` +
-                        `O técnico ${techName} está ocupado neste período e NÃO há nenhum outro técnico disponível nesta data.\n\n` +
-                        `A alteração foi cancelada.`
-                    );
-                    return;
-                }
-            }
-
-            // Tech Swapping Logic:
+            // 2. Montar proposta do serviço com o novo técnico e datas
             const currentTechs = serviceToMove.technicianIds || [];
-            let newTechs = [...currentTechs];
-
-            if (oldTechId && targetTechId && oldTechId !== targetTechId) {
-                newTechs = newTechs.filter(t => t !== oldTechId);
-                if (!newTechs.includes(targetTechId)) {
-                    newTechs.push(targetTechId);
-                }
-            } else if (!currentTechs.includes(targetTechId)) {
-                newTechs.push(targetTechId);
+            let proposedTechs = [...currentTechs];
+            if (oldTechId && newTechId && oldTechId !== newTechId) {
+                proposedTechs = proposedTechs.filter(t => t !== oldTechId);
+                if (!proposedTechs.includes(newTechId)) proposedTechs.push(newTechId);
+            } else if (!proposedTechs.includes(newTechId)) {
+                proposedTechs.push(newTechId);
             }
 
-            recordSnapshot();
-            setServices(prev => {
-                const updatedMoved = prev.map(s => {
-                    if (s.id !== id) return s;
+            const proposedService: Service = {
+                ...serviceToMove,
+                startDate: newStartDate,
+                endDate: newEndDate,
+                technicianIds: proposedTechs,
+                week: getISOWeek(newStart)
+            };
 
-                    const updatedService: Service = {
-                        ...s,
-                        startDate: newStartDate,
-                        endDate: newEndDate,
-                        technicianIds: newTechs,
-                        week: newWeek
-                    };
+            // 3. Consultar motor de sugestões de resolução de conflito
+            const suggestions = findConflictResolutionSuggestions(services, technicians, proposedService);
 
-                    return updatedService;
+            if (suggestions.hasConflict) {
+                setConflictModalState({
+                    service: proposedService,
+                    suggestions,
+                    pendingAction: 'move',
+                    pendingData: {
+                        newStartDate,
+                        newEndDate,
+                        newTechId,
+                        oldTechId
+                    }
                 });
+                return;
+            }
 
-                const targetUpdated = updatedMoved.find(s => s.id === id);
-                if (targetUpdated && targetUpdated.period && targetUpdated.period > 0) {
-                    // Reajusta em cascata todas as agendas futuras do cliente a partir da nova data
-                    const recalculated = recalculateFutureForecastsFromNewDate(targetUpdated, updatedMoved, technicians);
-                    return syncServicesLastCalibration(recalculated);
-                }
-
-                return syncServicesLastCalibration(updatedMoved);
-            });
+            // Sem conflito -> executa movimentação normalmente
+            executeServiceMove(id, newStartDate, newEndDate, newTechId, oldTechId);
 
             if (periodCheck.isExceeded) {
                 showToast(`Atividade reagendada e agendas futuras subsequentes reajustadas em cascata!`);
@@ -1089,37 +1142,115 @@ const App: React.FC = () => {
         const newEnd = parseISO(newEndDate);
         if (!isValid(newStart) || !isValid(newEnd) || newEnd < newStart) return;
 
-        // Checar conflitos para os técnicos atribuídos na nova duração
-        const techIds = serviceToResize.technicianIds || [];
-        for (const tId of techIds) {
-            const conflicts = getTechnicianConflicts(services, tId, newStartDate, newEndDate, id);
-            if (conflicts.length > 0) {
-                const t = technicians.find(tech => tech.id === tId);
-                const tName = t ? `${t.name} (${t.fullName})` : tId;
-                const confirmResize = window.confirm(
-                    `⚠️ SOBREPOSIÇÃO DETECTADA!\n\nAo alterar a duração, o técnico ${tName} terá sobreposição com ${conflicts.length} outra(s) atividade(s).\n\nDeseja confirmar a alteração mesmo assim?`
-                );
-                if (!confirmResize) {
-                    showToast('Alteração de duração cancelada.');
-                    return;
+        const proposedService: Service = {
+            ...serviceToResize,
+            startDate: newStartDate,
+            endDate: newEndDate,
+            week: getISOWeek(newStart)
+        };
+
+        const suggestions = findConflictResolutionSuggestions(services, technicians, proposedService);
+
+        if (suggestions.hasConflict) {
+            setConflictModalState({
+                service: proposedService,
+                suggestions,
+                pendingAction: 'resize',
+                pendingData: {
+                    newStartDate,
+                    newEndDate
                 }
-            }
+            });
+            return;
         }
 
-        recordSnapshot();
-        setServices(prev => syncServicesLastCalibration(prev.map(s => {
-            if (s.id !== id) return s;
-
-            const updatedService: Service = {
-                ...s,
-                startDate: newStartDate,
-                endDate: newEndDate,
-                week: getISOWeek(newStart),
-            };
-
-            return updatedService;
-        })));
+        executeServiceResize(id, newStartDate, newEndDate);
         showToast('Duração da atividade atualizada.');
+    };
+
+    const handleResolveTechSwap = (newTechId: string) => {
+        if (!conflictModalState) return;
+        const { service, pendingAction, pendingData } = conflictModalState;
+
+        if (pendingAction === 'move') {
+            executeServiceMove(
+                service.id,
+                pendingData.newStartDate,
+                pendingData.newEndDate,
+                newTechId,
+                pendingData.oldTechId
+            );
+        } else {
+            // resize
+            executeServiceResize(
+                service.id,
+                pendingData.newStartDate,
+                pendingData.newEndDate,
+                [newTechId]
+            );
+        }
+
+        const chosenTech = technicians.find(t => t.id === newTechId);
+        setConflictModalState(null);
+        showToast(`Atividade realocada com sucesso para ${chosenTech?.name || 'técnico disponível'}!`);
+    };
+
+    const handleResolveDateChange = (newStartDate: string, newEndDate: string, chosenTechId?: string) => {
+        if (!conflictModalState) return;
+        const { service, pendingAction, pendingData } = conflictModalState;
+
+        const targetTechId = chosenTechId || (service.technicianIds && service.technicianIds[0]) || '';
+
+        if (pendingAction === 'move') {
+            executeServiceMove(
+                service.id,
+                newStartDate,
+                newEndDate,
+                targetTechId,
+                pendingData.oldTechId
+            );
+        } else {
+            // resize
+            const targetTechs = chosenTechId ? [chosenTechId] : service.technicianIds;
+            executeServiceResize(
+                service.id,
+                newStartDate,
+                newEndDate,
+                targetTechs
+            );
+        }
+
+        setConflictModalState(null);
+        showToast(`Atividade reagendada para ${isoToBrDate(newStartDate)} a ${isoToBrDate(newEndDate)}!`);
+    };
+
+    const handleResolveKeepOverlap = () => {
+        if (!conflictModalState) return;
+        const { service, pendingAction, pendingData } = conflictModalState;
+
+        if (pendingAction === 'move') {
+            executeServiceMove(
+                service.id,
+                pendingData.newStartDate,
+                pendingData.newEndDate,
+                pendingData.newTechId || '',
+                pendingData.oldTechId
+            );
+        } else {
+            executeServiceResize(
+                service.id,
+                pendingData.newStartDate,
+                pendingData.newEndDate
+            );
+        }
+
+        setConflictModalState(null);
+        showToast('Alteração salva mantendo a sobreposição.');
+    };
+
+    const handleResolveCancel = () => {
+        setConflictModalState(null);
+        showToast('Alteração cancelada para evitar sobreposição.');
     };
 
     const handleServiceClick = (service: Service) => {
@@ -1371,6 +1502,17 @@ const App: React.FC = () => {
                 existingServices={services}
                 onConfirm={handleConfirmRecurrence}
                 onSaveOnly={handleSaveRecurrenceOnly}
+            />
+
+            {/* Modal de Resolução de Conflitos / Sugestões do Motor */}
+            <ConflictResolutionModal
+                isOpen={conflictModalState !== null}
+                onClose={handleResolveCancel}
+                service={conflictModalState?.service || null}
+                suggestions={conflictModalState?.suggestions || null}
+                onSelectTechSwap={handleResolveTechSwap}
+                onSelectDateChange={handleResolveDateChange}
+                onKeepOverlap={handleResolveKeepOverlap}
             />
 
             {/* --- HEADER & CONTROLS --- */}

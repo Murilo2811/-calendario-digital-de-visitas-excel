@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Modal } from './Modal';
 import { Service, ServiceStatus, Technician, Client } from '../types';
-import { X, PlusCircle, Pencil, Trash2, AlertTriangle, Repeat } from 'lucide-react';
+import { X, PlusCircle, Pencil, Trash2, AlertTriangle, Repeat, UserCheck, ArrowLeft, ArrowRight } from 'lucide-react';
 import { format } from 'date-fns/format';
 import { parseISO } from 'date-fns/parseISO';
 import { isValid } from 'date-fns/isValid';
-import { checkPeriodExceeded, getPreviousServiceStartDate, calculateCalibration, isoToBrDate, getDetailedConflicts, formatConflictsConfirmMessage } from '../utils';
+import { checkPeriodExceeded, getPreviousServiceStartDate, calculateCalibration, isoToBrDate, getDetailedConflicts, formatConflictsConfirmMessage, findConflictResolutionSuggestions } from '../utils';
 import { DateInput } from './DateInput';
 
 interface AddServiceModalProps {
@@ -109,6 +109,18 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   const activeConflicts = useMemo(() => {
     if (!formData.startDate || !formData.endDate) return [];
     return getDetailedConflicts(services, technicians, {
+      id: serviceToEdit?.id,
+      startDate: formData.startDate,
+      endDate: formData.endDate,
+      client: formData.client,
+      technicianIds: formData.technicianIds
+    });
+  }, [services, technicians, serviceToEdit?.id, formData.startDate, formData.endDate, formData.client, formData.technicianIds]);
+
+  // Sugestões automáticas do motor para resolução de conflitos
+  const resolutionSuggestions = useMemo(() => {
+    if (!formData.startDate || !formData.endDate) return null;
+    return findConflictResolutionSuggestions(services, technicians, {
       id: serviceToEdit?.id,
       startDate: formData.startDate,
       endDate: formData.endDate,
@@ -308,6 +320,76 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                   </div>
                 ))}
               </div>
+
+              {/* Sugestões do Motor de Resolução */}
+              {resolutionSuggestions && (resolutionSuggestions.techSwapOptions.length > 0 || resolutionSuggestions.earlierOption || resolutionSuggestions.laterOption) && (
+                <div className="pt-2.5 border-t border-amber-200/80 space-y-2">
+                  <span className="text-[11px] font-bold text-amber-950 uppercase tracking-wider block">
+                    💡 Sugestões do motor para resolver automaticamente:
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {resolutionSuggestions.techSwapOptions.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const chosen = resolutionSuggestions.techSwapOptions[0];
+                          setFormData(prev => ({
+                            ...prev,
+                            technicianIds: [chosen.id]
+                          }));
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-950 border border-emerald-300 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer"
+                        title={`Trocar técnico para ${resolutionSuggestions.techSwapOptions[0].fullName}`}
+                      >
+                        <UserCheck size={14} className="text-emerald-700" />
+                        Trocar para Técnico {resolutionSuggestions.techSwapOptions[0].name}
+                      </button>
+                    )}
+
+                    {resolutionSuggestions.earlierOption && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormData(prev => ({
+                            ...prev,
+                            startDate: resolutionSuggestions.earlierOption!.startDate,
+                            endDate: resolutionSuggestions.earlierOption!.endDate,
+                            technicianIds: resolutionSuggestions.earlierOption!.availableTechs[0]
+                              ? [resolutionSuggestions.earlierOption!.availableTechs[0].id]
+                              : prev.technicianIds
+                          }));
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-100 hover:bg-sky-200 text-sky-950 border border-sky-300 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer"
+                        title={`Antecipar para ${resolutionSuggestions.earlierOption.formattedRange}`}
+                      >
+                        <ArrowLeft size={14} className="text-sky-700" />
+                        Antecipar ({resolutionSuggestions.earlierOption.formattedRange}) [-{resolutionSuggestions.earlierOption.daysShift}d]
+                      </button>
+                    )}
+
+                    {resolutionSuggestions.laterOption && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormData(prev => ({
+                            ...prev,
+                            startDate: resolutionSuggestions.laterOption!.startDate,
+                            endDate: resolutionSuggestions.laterOption!.endDate,
+                            technicianIds: resolutionSuggestions.laterOption!.availableTechs[0]
+                              ? [resolutionSuggestions.laterOption!.availableTechs[0].id]
+                              : prev.technicianIds
+                          }));
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-100 hover:bg-indigo-200 text-indigo-950 border border-indigo-300 rounded-lg text-xs font-semibold shadow-2xs transition-all cursor-pointer"
+                        title={`Adiar para ${resolutionSuggestions.laterOption.formattedRange}`}
+                      >
+                        <ArrowRight size={14} className="text-indigo-700" />
+                        Adiar ({resolutionSuggestions.laterOption.formattedRange}) [+{resolutionSuggestions.laterOption.daysShift}d]
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

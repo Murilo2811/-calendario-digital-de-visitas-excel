@@ -9,6 +9,7 @@ import { parseISO } from 'date-fns/parseISO';
 import { startOfDay } from 'date-fns/startOfDay';
 import { isBefore } from 'date-fns/isBefore';
 import { addDays } from 'date-fns/addDays';
+import { subDays } from 'date-fns/subDays';
 import { getISOWeek } from 'date-fns/getISOWeek';
 import { isWeekend } from 'date-fns/isWeekend';
 import { nextMonday } from 'date-fns/nextMonday';
@@ -301,6 +302,181 @@ export const formatConflictsConfirmMessage = (conflicts: OverlapConflictDetail[]
   });
   lines.push('\nDeseja confirmar e salvar mesmo com essa sobreposição?');
   return lines.join('\n');
+};
+
+export interface ConflictResolutionSuggestion {
+  hasConflict: boolean;
+  conflicts: OverlapConflictDetail[];
+  durationDays: number;
+  // 1. Troca de técnico no mesmo período
+  techSwapOptions: Technician[];
+  // 2. Antecipação da data mais próxima
+  earlierOption: {
+    startDate: string; // YYYY-MM-DD
+    endDate: string;   // YYYY-MM-DD
+    formattedRange: string; // "DD/MM/AAAA a DD/MM/AAAA"
+    daysShift: number; // quantidade de dias antecipados
+    availableTechs: Technician[];
+  } | null;
+  // 3. Adiamento da data mais próxima
+  laterOption: {
+    startDate: string; // YYYY-MM-DD
+    endDate: string;   // YYYY-MM-DD
+    formattedRange: string; // "DD/MM/AAAA a DD/MM/AAAA"
+    daysShift: number; // quantidade de dias adiados
+    availableTechs: Technician[];
+  } | null;
+}
+
+/**
+ * Motor de resolução de conflitos: calcula sugestões inteligentes quando há sobreposição.
+ * 1. Troca de técnico no mesmo período (se houver técnicos disponíveis)
+ * 2. Antecipação da data mais próxima (buscando para trás uma janela livre que contemple a duração necessária, iniciando em dia útil)
+ * 3. Adiamento da data mais próxima (buscando para frente uma janela livre, iniciando em dia útil)
+ */
+export const findConflictResolutionSuggestions = (
+  services: Service[],
+  technicians: Technician[],
+  serviceData: {
+    id?: string;
+    startDate?: string;
+    endDate?: string;
+    client?: string;
+    technicianIds?: string[];
+  },
+  maxDaysSearch = 90
+): ConflictResolutionSuggestion => {
+  const { id, startDate, endDate, client, technicianIds } = serviceData;
+  if (!startDate || !endDate) {
+    return {
+      hasConflict: false,
+      conflicts: [],
+      durationDays: 0,
+      techSwapOptions: [],
+      earlierOption: null,
+      laterOption: null
+    };
+  }
+
+  const conflicts = getDetailedConflicts(services, technicians, serviceData);
+  const hasConflict = conflicts.length > 0;
+
+  let duration = 1;
+  try {
+    duration = calculateDuration(startDate, endDate);
+  } catch {
+    duration = 1;
+  }
+  if (duration < 1) duration = 1;
+
+  if (!hasConflict) {
+    return {
+      hasConflict: false,
+      conflicts: [],
+      durationDays: duration,
+      techSwapOptions: [],
+      earlierOption: null,
+      laterOption: null
+    };
+  }
+
+  const currentTechSet = new Set(technicianIds || []);
+
+  // 1. Trocar de técnico no mesmo período
+  // Busca técnicos livres que não estejam nos technicianIds atualmente em conflito
+  const allFreeTechs = findAvailableTechnicians(technicians, services, startDate, endDate, id);
+  // Se houver conflito de cliente no período atual, trocar o técnico NÃO resolve a sobreposição da empresa,
+  // mas se for apenas conflito de técnico, resolve perfeitamente!
+  const hasClientConflict = client
+    ? getClientConflicts(services, client, startDate, endDate, id).length > 0
+    : false;
+
+  const techSwapOptions = hasClientConflict
+    ? []
+    : allFreeTechs.filter(t => !currentTechSet.has(t.id));
+
+  // Função auxiliar para ordenar técnicos livres priorizando os técnicos originais da atividade se disponíveis
+  const sortFreeTechs = (free: Technician[]) => {
+    return [...free].sort((a, b) => {
+      const aIsCurrent = currentTechSet.has(a.id) ? -1 : 0;
+      const bIsCurrent = currentTechSet.has(b.id) ? -1 : 0;
+      return aIsCurrent - bIsCurrent;
+    });
+  };
+
+  // Função auxiliar para testar se um intervalo [candStart, candEnd] está livre para execução
+  const testInterval = (candStart: Date) => {
+    const candEnd = addDays(candStart, duration - 1);
+    const candStartStr = format(candStart, 'yyyy-MM-dd');
+    const candEndStr = format(candEnd, 'yyyy-MM-dd');
+
+    // Verifica se a empresa/cliente tem conflito nesse intervalo
+    if (client && getClientConflicts(services, client, candStartStr, candEndStr, id).length > 0) {
+      return null;
+    }
+
+    // Busca técnicos livres para esse intervalo
+    const freeTechs = findAvailableTechnicians(technicians, services, candStartStr, candEndStr, id);
+    if (freeTechs.length === 0) {
+      return null;
+    }
+
+    return {
+      startDate: candStartStr,
+      endDate: candEndStr,
+      formattedRange: `${isoToBrDate(candStartStr)} a ${isoToBrDate(candEndStr)}`,
+      availableTechs: sortFreeTechs(freeTechs)
+    };
+  };
+
+  const parsedCurrentStart = startOfDay(parseISO(startDate));
+
+  // 2. Antecipação da data mais próxima (busca para trás de 1 até maxDaysSearch)
+  let earlierOption: ConflictResolutionSuggestion['earlierOption'] = null;
+  for (let offset = 1; offset <= maxDaysSearch; offset++) {
+    const candidateStart = subDays(parsedCurrentStart, offset);
+    // Deve iniciar em dia útil (não final de semana nem feriado)
+    if (isNonWorkingDay(candidateStart).isNonWorking) {
+      continue;
+    }
+
+    const res = testInterval(candidateStart);
+    if (res) {
+      earlierOption = {
+        ...res,
+        daysShift: offset
+      };
+      break;
+    }
+  }
+
+  // 3. Adiamento da data mais próxima (busca para frente de 1 até maxDaysSearch)
+  let laterOption: ConflictResolutionSuggestion['laterOption'] = null;
+  for (let offset = 1; offset <= maxDaysSearch; offset++) {
+    const candidateStart = addDays(parsedCurrentStart, offset);
+    // Deve iniciar em dia útil
+    if (isNonWorkingDay(candidateStart).isNonWorking) {
+      continue;
+    }
+
+    const res = testInterval(candidateStart);
+    if (res) {
+      laterOption = {
+        ...res,
+        daysShift: offset
+      };
+      break;
+    }
+  }
+
+  return {
+    hasConflict,
+    conflicts,
+    durationDays: duration,
+    techSwapOptions,
+    earlierOption,
+    laterOption
+  };
 };
 
 export type CalibrationAlertLevel = 'EXPIRED' | 'EXPIRING_SOON' | 'OK' | 'NONE' | 'OVERDUE_REALIZED';
