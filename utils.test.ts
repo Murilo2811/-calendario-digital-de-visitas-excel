@@ -129,10 +129,11 @@ test('getCalibrationStatus: cliente realizado sem periodicidade nao exibe alerta
   assert.equal(status.level, 'NONE');
 });
 
-test('getCalibrationStatus: cliente confirmado realizado com proxima calibracao vencida exibe EXPIRED (VENC)', () => {
+test('getCalibrationStatus: atividade realizada (concluída) nunca exibe EXPIRED (VENC), mesmo se próxima calibração estiver no passado', () => {
   const service = base({ startDate: '2026-01-05', endDate: '2026-01-09', period: 6, status: ServiceStatus.CONFIRMED, realized: 'sim' });
   const status = getCalibrationStatus(service);
-  assert.equal(status.level, 'EXPIRED', 'Próxima calibração de 05/07/2026 já passou de hoje e deve acusar VENC');
+  assert.notEqual(status.level, 'EXPIRED', 'Atividade concluída nunca deve acusar vencida');
+  assert.equal(status.level, 'OK');
 });
 
 test('getCalibrationStatus: atividade nao realizada com data de fim vencida exibe EXPIRED mesmo com periodo de 12 ou 36 meses', () => {
@@ -1018,3 +1019,52 @@ test('calibração realizada com visita posterior do cliente não aparece como v
   const seguinte = base({ id: 'c', startDate: '2026-07-06', endDate: '2026-07-06', realized: 'sim' });
   assert.notEqual(getCalibrationStatus(atual, [anterior, atual, seguinte]).level, 'EXPIRED');
 });
+
+test('atividade concluída nunca exibe mensagem de vencida (VENC), mesmo sendo a última visita e próxima calibração passada', () => {
+  // Visita concluída no passado, cuja próxima calibração já expirou
+  const visitaConcluidaPassada = base({
+    id: 'vc-1',
+    client: 'CLIENTE TESTE',
+    startDate: '2025-01-10',
+    endDate: '2025-01-14',
+    period: 6,
+    realized: 'sim',
+    status: ServiceStatus.CONFIRMED
+  });
+
+  const status = getCalibrationStatus(visitaConcluidaPassada, [visitaConcluidaPassada]);
+  assert.notEqual(status.level, 'EXPIRED', 'Atividade concluída nunca deve ter level EXPIRED');
+  assert.equal(status.level, 'OK', 'Sem atraso em relação a visita anterior deve ser OK');
+});
+
+test('atividade concluída fora do prazo mostra OVERDUE_REALIZED com quantidade de dias de atraso e não EXPIRED', () => {
+  const visita1 = base({
+    id: 'v1',
+    client: 'KLABIN',
+    startDate: '2025-01-05',
+    endDate: '2025-01-09',
+    period: 6,
+    realized: 'sim',
+    status: ServiceStatus.CONFIRMED
+  });
+
+  // Prazo limite para v2 = 09/01/2025 + 6 meses = 09/07/2025
+  // Visita v2 iniciou em 14/07/2025 (5 dias de atraso) e foi concluída (realized = sim)
+  const visita2 = base({
+    id: 'v2',
+    client: 'KLABIN',
+    startDate: '2025-07-14',
+    endDate: '2025-07-18',
+    period: 6,
+    realized: 'sim',
+    status: ServiceStatus.CONFIRMED
+  });
+
+  const status = getCalibrationStatus(visita2, [visita1, visita2]);
+  assert.notEqual(status.level, 'EXPIRED', 'Não pode ser EXPIRED');
+  assert.equal(status.level, 'OVERDUE_REALIZED', 'Deve ser OVERDUE_REALIZED');
+  assert.equal(status.isDelayed, true);
+  assert.equal(status.daysDelayed, 5, 'Deve acusar exatamente 5 dias de atraso');
+  assert.ok(status.delayReason?.includes('5 dia(s) de atraso'));
+});
+

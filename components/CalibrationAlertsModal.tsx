@@ -68,7 +68,7 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
 
     return {
       all: analyzedServices.length,
-      expired: expired + overdueRealized,
+      expired,
       expiringSoon,
       ok
     };
@@ -79,7 +79,7 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
     return analyzedServices
       .filter(item => {
         if (activeTab === 'EXPIRED') {
-          if (item.calStatus.level !== 'EXPIRED' && item.calStatus.level !== 'OVERDUE_REALIZED') {
+          if (item.calStatus.level !== 'EXPIRED') {
             return false;
           }
         } else if (activeTab !== 'ALL' && item.calStatus.level !== activeTab) {
@@ -271,7 +271,7 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
                         </span>
                         {isOverdueRealized && (
                           <span className="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider bg-amber-500 text-white shadow-2xs">
-                            FORA DO PRAZO
+                            +{calStatus.daysDelayed || 0}d FORA DO PRAZO
                           </span>
                         )}
                       </div>

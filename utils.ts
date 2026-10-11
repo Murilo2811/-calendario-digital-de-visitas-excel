@@ -264,27 +264,7 @@ export const getCalibrationStatus = (
   const diffDays = differenceInDays(targetDate, today);
   const targetDateText = format(targetDate, 'dd/MM/yyyy', { locale: ptBR });
 
-  // Se o cliente já tem visita posterior no calendário, o ciclo foi atendido: não vence em relação a hoje
-  const clientNorm = (service.client || '').trim().toLowerCase();
-  const hasLaterVisit = !!allServices && !!startDateObj && allServices.some(s =>
-    s.id !== service.id &&
-    (s.client || '').trim().toLowerCase() === clientNorm &&
-    !!s.startDate && isValid(parseISO(s.startDate)) && parseISO(s.startDate) > startDateObj
-  );
-
-  // 2.1 Se a PRÓXIMA calibração já expirou em relação a hoje -> VENCIDA!
-  if (diffDays < 0 && !hasLaterVisit) {
-    return {
-      level: 'EXPIRED',
-      daysRemaining: Math.abs(diffDays),
-      targetDate,
-      targetDateText,
-      isForecast: true,
-      delayReason: `Calibração Vencida (Próxima calibração era em ${targetDateText})`
-    };
-  }
-
-  // 2.2 Se a visita foi REALIZADA, mas na época foi iniciada fora do prazo (histórico de atraso):
+  // 2.1 Se a visita foi REALIZADA fora do prazo na época (histórico de atraso):
   if (isStartOverdue && limitDate) {
     return {
       level: 'OVERDUE_REALIZED',
@@ -299,17 +279,7 @@ export const getCalibrationStatus = (
     };
   }
 
-  // 2.3 Próximo do vencimento da próxima calibração (até 30 dias se status != Confirmado)
-  if (diffDays <= 30 && service.status !== ServiceStatus.CONFIRMED) {
-    return {
-      level: 'EXPIRING_SOON',
-      daysRemaining: diffDays,
-      targetDate,
-      targetDateText,
-      isForecast: true
-    };
-  }
-
+  // 2.2 Atividade REALIZADA dentro do prazo: nunca é marcada como vencida nem expirada
   return {
     level: 'OK',
     daysRemaining: diffDays,

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Calendar, Repeat, ArrowRight, Clock, Users, Sparkles, AlertCircle } from 'lucide-react';
+import { X, Calendar, Repeat, ArrowRight, Clock, Users, Sparkles, AlertCircle, Save } from 'lucide-react';
 import { format } from 'date-fns/format';
 import { parseISO } from 'date-fns/parseISO';
 import { isValid } from 'date-fns/isValid';
@@ -14,6 +14,7 @@ interface RecurrenceModalProps {
     technicians: Technician[];
     existingServices: Service[];
     onConfirm: (service: Service, period: number, horizonMonths: number) => void;
+    onSaveOnly?: (service: Service, period: number) => void;
 }
 
 const COMMON_PERIODS = [6, 12];
@@ -26,6 +27,7 @@ export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
     technicians,
     existingServices,
     onConfirm,
+    onSaveOnly,
 }) => {
     const [period, setPeriod] = useState<number>(6);
     const [horizonMonths, setHorizonMonths] = useState<number>(6);
@@ -83,6 +85,12 @@ export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
     const handleConfirm = () => {
         if (previewForecasts.length === 0) return;
         onConfirm(service, period, horizonMonths);
+        onClose();
+    };
+
+    const handleSaveOnly = () => {
+        if (!service || !onSaveOnly) return;
+        onSaveOnly(service, period);
         onClose();
     };
 
@@ -297,7 +305,7 @@ export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
                 </div>
 
                 {/* Footer */}
-                <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
                     <button
                         type="button"
                         onClick={onClose}
@@ -306,19 +314,33 @@ export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
                         Cancelar
                     </button>
 
-                    <button
-                        type="button"
-                        onClick={handleConfirm}
-                        disabled={previewForecasts.length === 0}
-                        className={`px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-2 shadow-sm transition-all cursor-pointer ${
-                            previewForecasts.length > 0
-                                ? 'bg-abb-red text-white hover:bg-red-700 active:scale-98'
-                                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                        }`}
-                    >
-                        <Repeat size={14} />
-                        Gerar {previewForecasts.length} {previewForecasts.length === 1 ? 'Visita Futura' : 'Visitas Futuras'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {onSaveOnly && (
+                            <button
+                                type="button"
+                                onClick={handleSaveOnly}
+                                className="px-4 py-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 hover:border-slate-400 rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer active:scale-98"
+                                title="Salva a periodicidade e recalcula a próxima calibração na atividade base sem gerar novas visitas"
+                            >
+                                <Save size={14} className="text-slate-500" />
+                                Salvar sem Gerar
+                            </button>
+                        )}
+
+                        <button
+                            type="button"
+                            onClick={handleConfirm}
+                            disabled={previewForecasts.length === 0}
+                            className={`px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-2 shadow-sm transition-all cursor-pointer ${
+                                previewForecasts.length > 0
+                                    ? 'bg-abb-red text-white hover:bg-red-700 active:scale-98'
+                                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                            }`}
+                        >
+                            <Repeat size={14} />
+                            Gerar {previewForecasts.length} {previewForecasts.length === 1 ? 'Visita Futura' : 'Visitas Futuras'}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

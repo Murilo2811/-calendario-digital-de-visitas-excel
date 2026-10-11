@@ -867,7 +867,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
 
                     <td className="p-0 border-b border-slate-100 relative h-10 w-36 min-w-[145px]">
                         <div className="flex items-center justify-center gap-1 h-full px-1">
-                            {showCalBadge && calStatus.level === 'EXPIRED' && (
+                            {showCalBadge && service.realized !== 'sim' && calStatus.level === 'EXPIRED' && (
                                 <span
                                     className="px-1.5 py-0.5 bg-red-600 text-white font-bold text-[9px] rounded shadow-sm shrink-0"
                                     title={calStatus.delayReason || `Calibração Vencida (${calStatus.targetDateText})`}
@@ -877,10 +877,10 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                             )}
                             {showCalBadge && calStatus.level === 'OVERDUE_REALIZED' && (
                                 <span
-                                    className="px-1.5 py-0.5 bg-amber-500 text-white font-bold text-[9px] rounded shadow-sm shrink-0 ring-1 ring-amber-400"
+                                    className="px-1.5 py-0.5 bg-amber-500 text-white font-bold text-[9px] rounded shadow-sm shrink-0 ring-1 ring-amber-400 whitespace-nowrap"
                                     title={calStatus.delayReason || `Realizada Fora do Prazo (${calStatus.limitDateText})`}
                                 >
-                                    FORA DO PRAZO
+                                    {calStatus.daysDelayed ? `+${calStatus.daysDelayed}d ` : ''}FORA DO PRAZO
                                 </span>
                             )}
                             {showCalBadge && calStatus.level === 'EXPIRING_SOON' && (

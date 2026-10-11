@@ -16,6 +16,7 @@ import { RecurrenceModal } from './components/RecurrenceModal';
 import { createDefaultAdmin, canEdit, canManage, canExport } from './authService';
 import {
     calculateDuration,
+    calculateCalibration,
     exportToExcel,
     getTechnicianConflicts,
     getClientConflicts,
@@ -131,7 +132,7 @@ const App: React.FC = () => {
         let expiringSoon = 0;
         services.forEach(s => {
             const st = getCalibrationStatus(s, services);
-            if (st.level === 'EXPIRED' || st.level === 'OVERDUE_REALIZED') expired++;
+            if (st.level === 'EXPIRED') expired++;
             else if (st.level === 'EXPIRING_SOON') expiringSoon++;
         });
         return { expired, expiringSoon, totalAlerts: expired + expiringSoon };
@@ -929,6 +930,34 @@ const App: React.FC = () => {
         showToast(`${forecasts.length} visita(s) futura(s) de calibração gerada(s) a cada ${safePeriod}m até ${safeHorizon}m!`);
     };
 
+    const handleSaveRecurrenceOnly = (baseService: Service, customPeriod: number) => {
+        recordSnapshot();
+        const safePeriod = Math.min(Math.max(1, customPeriod), 12);
+
+        // Calcula a nova próxima calibração com base no novo período
+        const { isoDate } = calculateCalibration(
+            baseService.startDate,
+            baseService.lastCalibration,
+            safePeriod,
+            undefined,
+            baseService.realized
+        );
+
+        setServices(prev => {
+            const nextList = prev.map(s => {
+                if (s.id !== baseService.id) return s;
+                return {
+                    ...s,
+                    period: safePeriod,
+                    nextCalibration: isoDate || s.nextCalibration || ''
+                };
+            });
+            return syncServicesLastCalibration(nextList);
+        });
+
+        showToast(`Periodicidade (${safePeriod} meses) e próxima calibração salvas com sucesso!`);
+    };
+
     const handleServiceMove = (id: string, newStartDate: string, newTechId: string, oldTechId: string) => {
         const serviceToMove = services.find(s => s.id === id);
         if (!serviceToMove) return;
@@ -1336,6 +1365,7 @@ const App: React.FC = () => {
                 technicians={technicians}
                 existingServices={services}
                 onConfirm={handleConfirmRecurrence}
+                onSaveOnly={handleSaveRecurrenceOnly}
             />
 
             {/* --- HEADER & CONTROLS --- */}
