@@ -1,4 +1,11 @@
 import { ServiceStatus } from './types';
+
+/** Chave de comparação de cliente (sem espaços nas pontas, minúsculas). */
+export const normClient = (client?: string): string => (client || '').trim().toLowerCase();
+
+/** Previsão de calibração gerada automaticamente (substituível numa nova recorrência). */
+export const isAutoForecast = (s: { id: string; description?: string }): boolean =>
+  (s.description || '').includes('Calibração Prevista') || s.id.startsWith('svc-forecast-');
 import type { Service, Technician } from './types';
 import { addMonths } from 'date-fns/addMonths';
 import { differenceInDays } from 'date-fns/differenceInDays';
@@ -76,11 +83,11 @@ export const getClientConflicts = (
   excludeServiceId?: string
 ): Service[] => {
   if (!clientName || !startDate || !endDate) return [];
-  const normalizedClient = clientName.trim().toLowerCase();
+  const normalizedClient = normClient(clientName);
 
   return services.filter(s => {
     if (excludeServiceId && s.id === excludeServiceId) return false;
-    if (!s.client || s.client.trim().toLowerCase() !== normalizedClient) return false;
+    if (!s.client || normClient(s.client) !== normalizedClient) return false;
     return areDatesOverlapping(startDate, endDate, s.startDate, s.endDate);
   });
 };
@@ -706,14 +713,10 @@ export const createRecurringCalibrationForecasts = (
   let currentRefStart = baseStart;
 
   // Previsões automáticas futuras do cliente serão substituídas; só as demais visitas contam como já existentes
-  const clientNorm = (baseService.client || '').trim().toLowerCase();
-  const realVisits = existingServices.filter(s => {
-    if (s.id === baseService.id || (s.client || '').trim().toLowerCase() !== clientNorm || !s.startDate) return false;
-    const replaceable = s.status === ServiceStatus.PREDICTED &&
-      ((s.description || '').includes('Calibração Prevista') || s.id.startsWith('svc-forecast-')) &&
-      s.startDate > baseService.startDate;
-    return !replaceable;
-  });
+  const clientNorm = normClient(baseService.client);
+  const isRealVisit = (s: Service) =>
+    s.id !== baseService.id && normClient(s.client) === clientNorm && !!s.startDate &&
+    !(s.status === ServiceStatus.PREDICTED && isAutoForecast(s) && s.startDate > baseService.startDate);
 
   for (let months = period; months <= maxMonths; months += period) {
     // Projeta o início somando o período e joga para segunda-feira se cair no fim de semana
@@ -723,10 +726,7 @@ export const createRecurringCalibrationForecasts = (
     const cycle = months / period;
 
     // Já existe visita do cliente perto deste ciclo (±45 dias): não duplica e encadeia a partir dela
-    const existing = realVisits.find(s => {
-      const d = parseISO(s.startDate);
-      return isValid(d) && Math.abs(differenceInDays(d, cycleStart)) <= 45;
-    });
+    const existing = existingServices.find(s => isRealVisit(s) && Math.abs(differenceInDays(parseISO(s.startDate), cycleStart)) <= 45);
     if (existing) {
       currentRefStart = parseISO(existing.startDate);
       continue;
@@ -852,16 +852,16 @@ export const recalculateFutureForecastsFromNewDate = (
 ): Service[] => {
   if (!updatedService.period || updatedService.period <= 0) return allServices;
 
-  const clientNameNormalized = updatedService.client.trim().toLowerCase();
+  const clientNameNormalized = normClient(updatedService.client);
   const safePeriod = Math.min(updatedService.period, 12);
   const safeHorizon = safePeriod > 6 ? 12 : Math.min(maxMonths, 12);
 
   // 1. Remove previsões automáticas futuras desse cliente
   const filtered = allServices.filter(s => {
     if (s.id === updatedService.id) return true; // Mantém o próprio serviço
-    if (s.client.trim().toLowerCase() === clientNameNormalized &&
+    if (normClient(s.client) === clientNameNormalized &&
         s.status === ServiceStatus.PREDICTED &&
-        (s.description.includes('Calibração Prevista') || s.id.startsWith('svc-forecast-'))) {
+        isAutoForecast(s)) {
       return false; // Remove para recalcular
     }
     return true;
@@ -1318,7 +1318,7 @@ export function generateNextCalibrationService(
     s.id !== currentService.id &&
     s.client &&
     currentService.client &&
-    s.client.trim().toLowerCase() === currentService.client.trim().toLowerCase() &&
+    normClient(s.client) === normClient(currentService.client) &&
     s.startDate === startDateStr
   );
 
@@ -1366,7 +1366,7 @@ export const getPreviousService = (
   allServices: Service[]
 ): Service | null => {
   if (!service.client || !service.startDate) return null;
-  const clientNorm = service.client.trim().toLowerCase();
+  const clientNorm = normClient(service.client);
   if (!clientNorm) return null;
 
   const currentStart = parseISO(service.startDate);
@@ -1374,7 +1374,7 @@ export const getPreviousService = (
 
   const previousServices = allServices.filter(s => {
     if (s.id === service.id) return false;
-    if ((s.client || '').trim().toLowerCase() !== clientNorm) return false;
+    if (normClient(s.client) !== clientNorm) return false;
     if (!s.startDate) return false;
     const start = parseISO(s.startDate);
     if (!isValid(start)) return false;
@@ -1432,9 +1432,7 @@ export const syncServicesLastCalibration = (services: Service[]): Service[] => {
  */
 export const cleanObsoleteCalibrationForecasts = (services: Service[]): Service[] => {
   return services.filter(s => {
-    const isAutoForecast = s.status === ServiceStatus.PREDICTED &&
-      ((s.description || '').includes('Calibração Prevista') || s.id.startsWith('svc-forecast-'));
-    if (isAutoForecast && s.startDate && s.startDate >= '2028-01-01') {
+    if (s.status === ServiceStatus.PREDICTED && isAutoForecast(s) && s.startDate && s.startDate >= '2028-01-01') {
       return false;
     }
     return true;

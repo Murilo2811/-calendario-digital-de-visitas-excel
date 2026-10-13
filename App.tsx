@@ -34,7 +34,9 @@ import {
     cleanObsoleteCalibrationForecasts,
     findConflictResolutionSuggestions,
     ConflictResolutionSuggestion,
-    isoToBrDate
+    isoToBrDate,
+    normClient,
+    isAutoForecast
 } from './utils';
 import {
     openExcelFile,
@@ -657,7 +659,7 @@ const App: React.FC = () => {
             );
         }
 
-        const clientNameNormalized = (newServiceData.client || '').trim().toLowerCase();
+        const clientNameNormalized = normClient(newServiceData.client);
         let generatedCalService: Service | null = null;
 
         if (editingService) {
@@ -673,9 +675,9 @@ const App: React.FC = () => {
                     if (s.id === editingService.id) return true;
                     if (recurringForecasts.length > 0 &&
                         clientNameNormalized &&
-                        (s.client || '').trim().toLowerCase() === clientNameNormalized &&
+                        normClient(s.client) === clientNameNormalized &&
                         s.status === ServiceStatus.PREDICTED &&
-                        (s.description.includes('Calibração Prevista') || s.id.startsWith('svc-forecast-'))) {
+                        isAutoForecast(s)) {
                         return false; // Substitui pela nova série projetada
                     }
                     return true;
@@ -709,9 +711,9 @@ const App: React.FC = () => {
                 const filtered = prev.filter(s => {
                     if (recurringForecasts.length > 0 &&
                         clientNameNormalized &&
-                        (s.client || '').trim().toLowerCase() === clientNameNormalized &&
+                        normClient(s.client) === clientNameNormalized &&
                         s.status === ServiceStatus.PREDICTED &&
-                        (s.description.includes('Calibração Prevista') || s.id.startsWith('svc-forecast-'))) {
+                        isAutoForecast(s)) {
                         return false;
                     }
                     return true;
@@ -930,15 +932,13 @@ const App: React.FC = () => {
             return;
         }
 
-        const clientNorm = (baseService.client || '').trim().toLowerCase();
+        const clientNorm = normClient(baseService.client);
 
         // Substitui previsões automáticas futuras anteriores desse cliente a partir da data base
         setServices(prev => {
             const filtered = prev.filter(s => {
-                const sClientNorm = (s.client || '').trim().toLowerCase();
-                const isAutoForecast = s.status === ServiceStatus.PREDICTED &&
-                    ((s.description || '').includes('Calibração Prevista') || s.id.startsWith('svc-forecast-'));
-                if (sClientNorm === clientNorm && isAutoForecast && s.startDate > baseService.startDate) {
+                const sClientNorm = normClient(s.client);
+                if (sClientNorm === clientNorm && s.status === ServiceStatus.PREDICTED && isAutoForecast(s) && s.startDate > baseService.startDate) {
                     return false;
                 }
                 return true;
