@@ -21,7 +21,8 @@ import {
     Check,
     XCircle,
     Key,
-    Lock
+    Lock,
+    Wrench
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -36,6 +37,7 @@ interface SettingsModalProps {
     onAddUser: (user: User) => void;
     onDeleteUser: (id: string) => void;
     onUpdateUser: (id: string, updates: Partial<User>) => void;
+    onOpenServiceTypes?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -50,6 +52,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onAddUser,
     onDeleteUser,
     onUpdateUser,
+    onOpenServiceTypes,
 }) => {
     const [activeTab, setActiveTab] = useState<'excel' | 'users' | 'account'>('excel');
     const [showNewPassword, setShowNewPassword] = useState(false);
@@ -309,6 +312,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                         <p className="text-slate-600 font-mono text-sm">
                                             {appSettings.lastExcelFileName}
                                         </p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Gerenciamento de Serviços (Admin) */}
+                            {adminAccess && onOpenServiceTypes && (
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-700 mb-3">Tipos de Serviços</h3>
+                                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex items-center justify-between">
+                                        <div>
+                                            <p className="font-medium text-slate-800">Tipos de Serviços Prestados</p>
+                                            <p className="text-xs text-slate-500">
+                                                Cadastrar, renomear ou excluir serviços (Calibração, Startup, Treinamento, etc.)
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                onClose();
+                                                onOpenServiceTypes();
+                                            }}
+                                            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                                        >
+                                            <Wrench size={14} className="text-slate-600" />
+                                            Gerenciar Serviços
+                                        </button>
                                     </div>
                                 </div>
                             )}

@@ -4,8 +4,8 @@
  * Compatível apenas com Chrome e Edge.
  */
 
-import { ServiceStatus, TechType } from './types';
-import type { Service, Technician, Client, User, UserRole } from './types';
+import { ServiceStatus, TechType, DEFAULT_SERVICE_TYPES } from './types';
+import type { Service, Technician, Client, User, UserRole, ServiceType } from './types';
 import * as XLSX from 'xlsx';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
@@ -40,6 +40,7 @@ const SHEET_SERVICES = 'Atividades';
 const SHEET_TECHNICIANS = 'Tecnicos';
 const SHEET_CLIENTS = 'Clientes';
 const SHEET_USERS = 'Usuarios';
+const SHEET_SERVICE_TYPES = 'Servicos';
 
 // --- IndexedDB Helpers ---
 const DB_NAME = 'ServiceSyncDB';
@@ -265,6 +266,7 @@ export const parseWorkbookData = (workbook: XLSX.WorkBook): {
   technicians: Technician[];
   clients: Client[];
   users: User[];
+  serviceTypes: ServiceType[];
 } => {
   // 1. Técnicos
   const techSheet = workbook.Sheets[SHEET_TECHNICIANS];
@@ -307,7 +309,20 @@ export const parseWorkbookData = (workbook: XLSX.WorkBook): {
       }))
     : [];
 
-  // 4. Serviços
+  // 4. Tipos de Serviço
+  const serviceTypeSheet = workbook.Sheets[SHEET_SERVICE_TYPES];
+  const parsedServiceTypes: ServiceType[] = serviceTypeSheet
+    ? XLSX.utils.sheet_to_json<Record<string, unknown>>(serviceTypeSheet).map((row, index) => ({
+        id: String(row['ID'] || `st-${index}-${Date.now()}`),
+        name: String(row['Nome'] || row['Name'] || row['Serviço'] || row['Servico'] || ''),
+      })).filter(st => Boolean(st.name.trim()))
+    : [];
+
+  const serviceTypes: ServiceType[] = parsedServiceTypes.length > 0
+    ? parsedServiceTypes
+    : DEFAULT_SERVICE_TYPES.map(st => ({ ...st }));
+
+  // 5. Atividades / Serviços
   const serviceSheet = workbook.Sheets[SHEET_SERVICES];
   const services: Service[] = serviceSheet
     ? XLSX.utils.sheet_to_json<Record<string, unknown>>(serviceSheet).map((row, index) => {
@@ -327,6 +342,12 @@ export const parseWorkbookData = (workbook: XLSX.WorkBook): {
           weekNumber = getISOWeek(parsedStart);
         }
 
+        const rawServicesStr = String(row['Serviços'] || row['Servicos'] || row['Tipo de Servico'] || row['Tipo de Serviço'] || row['Services'] || '');
+        const itemServiceTypes = rawServicesStr
+          .split(',')
+          .map(s => s.trim())
+          .filter(Boolean);
+
         return {
           id: String(row['ID'] || `svc-imported-${index}-${Date.now()}`),
           week: weekNumber,
@@ -334,6 +355,7 @@ export const parseWorkbookData = (workbook: XLSX.WorkBook): {
           manager: String(row['Gerente'] || row['Manager'] || ''),
           os: String(row['OS'] || ''),
           description: String(row['Descricao'] || row['DESCRIPT'] || ''),
+          serviceTypes: itemServiceTypes,
           hp: Number(row['HP'] || 0),
           ht: Number(row['HT'] || 0),
           hv: Number(row['HV'] || 0),
@@ -353,7 +375,7 @@ export const parseWorkbookData = (workbook: XLSX.WorkBook): {
       })
     : [];
 
-  return { services, technicians, clients, users };
+  return { services, technicians, clients, users, serviceTypes };
 };
 
 /**
@@ -364,6 +386,7 @@ export const readAllFromExcel = async (handle: FileHandle): Promise<{
   technicians: Technician[];
   clients: Client[];
   users: User[];
+  serviceTypes: ServiceType[];
 }> => {
   const workbook = await readWorkbook(handle);
   return parseWorkbookData(workbook);
@@ -402,6 +425,7 @@ export const loadFromNetworkServer = async (): Promise<{
   technicians: Technician[];
   clients: Client[];
   users: User[];
+  serviceTypes: ServiceType[];
   fileName: string;
 } | null> => {
   try {
@@ -419,14 +443,15 @@ export const loadFromNetworkServer = async (): Promise<{
 };
 
 /**
- * Monta o workbook completo (4 abas) a partir do estado da aplicação.
+ * Monta o workbook completo (5 abas) a partir do estado da aplicação.
  * Formato lido de volta por parseWorkbookData — mantenha os dois em sincronia.
  */
 export const buildWorkbook = (
   services: Service[],
   technicians: Technician[],
   clients: Client[],
-  users: User[]
+  users: User[],
+  serviceTypes: ServiceType[] = DEFAULT_SERVICE_TYPES
 ): XLSX.WorkBook => {
   const workbook = XLSX.utils.book_new();
 
@@ -447,6 +472,7 @@ export const buildWorkbook = (
     'Gerente': s.manager,
     'OS': s.os,
     'Descricao': s.description,
+    'Serviços': (s.serviceTypes || []).join(', '),
     'HP': s.hp,
     'HT': s.ht,
     'HV': s.hv,
@@ -464,7 +490,7 @@ export const buildWorkbook = (
       : (isoToBrDate(calculateCalibration(s.startDate, s.lastCalibration, s.period, undefined, s.realized).isoDate) || ''),
     'Periodo': s.period || 0,
     'Comentários': s.comments || '',
-  })), SHEET_SERVICES, [20, 8, 25, 12, 15, 25, 6, 6, 6, 12, 12, 20, 12, 22, 15, 15, 8, 35]);
+  })), SHEET_SERVICES, [20, 8, 25, 12, 15, 25, 22, 6, 6, 6, 12, 12, 20, 12, 22, 15, 15, 8, 35]);
 
   appendSheet(technicians.map(t => ({
     'ID': t.id,
@@ -495,6 +521,12 @@ export const buildWorkbook = (
     'CriadoEm': u.createdAt,
   })), SHEET_USERS, [20, 25, 70, 10, 30, 12]);
 
+  const finalTypes = (serviceTypes && serviceTypes.length > 0) ? serviceTypes : DEFAULT_SERVICE_TYPES;
+  appendSheet(finalTypes.map(st => ({
+    'ID': st.id,
+    'Nome': st.name,
+  })), SHEET_SERVICE_TYPES, [20, 30]);
+
   return workbook;
 };
 
@@ -511,10 +543,11 @@ export const saveToNetworkServer = async (
   services: Service[],
   technicians: Technician[],
   clients: Client[],
-  users: User[]
+  users: User[],
+  serviceTypes: ServiceType[] = DEFAULT_SERVICE_TYPES
 ): Promise<boolean> => {
   try {
-    const blob = workbookToBlob(buildWorkbook(services, technicians, clients, users));
+    const blob = workbookToBlob(buildWorkbook(services, technicians, clients, users, serviceTypes));
 
     const res = await fetch('/api/excel/save', {
       method: 'POST',
@@ -537,9 +570,10 @@ export const saveAllToExcel = async (
   services: Service[],
   technicians: Technician[],
   clients: Client[],
-  users: User[] = []
+  users: User[] = [],
+  serviceTypes: ServiceType[] = DEFAULT_SERVICE_TYPES
 ): Promise<void> => {
-  const blob = workbookToBlob(buildWorkbook(services, technicians, clients, users));
+  const blob = workbookToBlob(buildWorkbook(services, technicians, clients, users, serviceTypes));
 
   // Usar File System Access API para escrever
   const writable = await handle.createWritable();

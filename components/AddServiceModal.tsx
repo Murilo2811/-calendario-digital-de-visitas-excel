@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Modal } from './Modal';
-import { Service, ServiceStatus, Technician, Client } from '../types';
-import { X, PlusCircle, Pencil, Trash2, AlertTriangle, Repeat, UserCheck, ArrowLeft, ArrowRight } from 'lucide-react';
+import { Service, ServiceStatus, Technician, Client, ServiceType, DEFAULT_SERVICE_TYPES } from '../types';
+import { X, PlusCircle, Pencil, Trash2, AlertTriangle, Repeat, UserCheck, ArrowLeft, ArrowRight, Wrench } from 'lucide-react';
 import { format } from 'date-fns/format';
 import { parseISO } from 'date-fns/parseISO';
 import { isValid } from 'date-fns/isValid';
@@ -15,6 +15,7 @@ interface AddServiceModalProps {
   onDelete?: (id: string) => void;
   technicians: Technician[];
   clients: Client[];
+  serviceTypes?: ServiceType[];
   serviceToEdit?: Service | null;
   onGenerateRecurrence?: (serviceId: string) => void;
   canEdit?: boolean;
@@ -28,6 +29,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   onDelete,
   technicians,
   clients,
+  serviceTypes = DEFAULT_SERVICE_TYPES,
   serviceToEdit,
   onGenerateRecurrence,
   canEdit = true,
@@ -45,6 +47,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
     startDate: format(new Date(), 'yyyy-MM-dd'),
     endDate: format(new Date(), 'yyyy-MM-dd'),
     technicianIds: [] as string[],
+    serviceTypes: [] as string[],
     status: ServiceStatus.PREDICTED,
     period: 6,
     lastCalibration: '',
@@ -67,6 +70,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
           lastCalibration: serviceToEdit.lastCalibration || '',
           nextCalibration: cleanNextCal,
           technicianIds: serviceToEdit.technicianIds || [],
+          serviceTypes: serviceToEdit.serviceTypes || [],
           comments: serviceToEdit.comments || '',
           realized: serviceToEdit.realized || 'nao',
           previousLastCalibration: serviceToEdit.previousLastCalibration,
@@ -105,7 +109,7 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   const isCustomNextCal = Boolean(formData.nextCalibration && formData.nextCalibration !== '0' && isValid(parseISO(formData.nextCalibration)));
   const currentNextCal = isCustomNextCal ? formData.nextCalibration! : (autoNextCal || '');
 
-  // Conflitos detalhados de sobreposição em tempo real
+  // Conflitos detalhados de sobreposição em tempo real (considerando tipos de serviços)
   const activeConflicts = useMemo(() => {
     if (!formData.startDate || !formData.endDate) return [];
     return getDetailedConflicts(services, technicians, {
@@ -113,9 +117,10 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
       startDate: formData.startDate,
       endDate: formData.endDate,
       client: formData.client,
-      technicianIds: formData.technicianIds
+      technicianIds: formData.technicianIds,
+      serviceTypes: formData.serviceTypes
     });
-  }, [services, technicians, serviceToEdit?.id, formData.startDate, formData.endDate, formData.client, formData.technicianIds]);
+  }, [services, technicians, serviceToEdit?.id, formData.startDate, formData.endDate, formData.client, formData.technicianIds, formData.serviceTypes]);
 
   // Sugestões automáticas do motor para resolução de conflitos
   const resolutionSuggestions = useMemo(() => {
@@ -125,9 +130,10 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
       startDate: formData.startDate,
       endDate: formData.endDate,
       client: formData.client,
-      technicianIds: formData.technicianIds
+      technicianIds: formData.technicianIds,
+      serviceTypes: formData.serviceTypes
     });
-  }, [services, technicians, serviceToEdit?.id, formData.startDate, formData.endDate, formData.client, formData.technicianIds]);
+  }, [services, technicians, serviceToEdit?.id, formData.startDate, formData.endDate, formData.client, formData.technicianIds, formData.serviceTypes]);
 
   if (!isOpen) return null;
 
@@ -229,6 +235,18 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
         return { ...prev, technicianIds: currentIds.filter(id => id !== techId) };
       } else {
         return { ...prev, technicianIds: [...currentIds, techId] };
+      }
+    });
+  };
+
+  const toggleServiceType = (typeName: string) => {
+    if (!canEdit) return;
+    setFormData(prev => {
+      const current = prev.serviceTypes || [];
+      if (current.includes(typeName)) {
+        return { ...prev, serviceTypes: current.filter(s => s !== typeName) };
+      } else {
+        return { ...prev, serviceTypes: [...current, typeName] };
       }
     });
   };
@@ -437,6 +455,43 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                 </div>
               </div>
 
+              {/* Seletor de Tipos de Serviços */}
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Wrench size={14} className="text-slate-600" />
+                    <label className={labelClass + " !mb-0"}>SERVIÇOS PRESTADOS</label>
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    {(formData.serviceTypes || []).length} selecionado(s)
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Atividades na mesma data no mesmo cliente com serviços diferentes não geram sobreposição.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {serviceTypes.map(st => {
+                    const isSelected = (formData.serviceTypes || []).includes(st.name);
+                    return (
+                      <button
+                        type="button"
+                        key={st.id}
+                        disabled={!canEdit}
+                        onClick={() => toggleServiceType(st.name)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                          isSelected
+                            ? 'bg-abb-red text-white border-abb-red shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400 hover:bg-slate-100'
+                        } ${!canEdit ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
+                      >
+                        <span className="text-[11px]">{isSelected ? '✓' : '+'}</span>
+                        <span>{st.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelClass}>INÍCIO *</label>
@@ -621,6 +676,43 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                     <option value="nao">Não</option>
                     <option value="sim">Sim</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Seletor de Tipos de Serviços */}
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <Wrench size={14} className="text-slate-600" />
+                    <label className={labelClass + " !mb-0"}>SERVIÇOS PRESTADOS</label>
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    {(formData.serviceTypes || []).length} selecionado(s)
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Atividades na mesma data no mesmo cliente com serviços diferentes não geram sobreposição.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {serviceTypes.map(st => {
+                    const isSelected = (formData.serviceTypes || []).includes(st.name);
+                    return (
+                      <button
+                        type="button"
+                        key={st.id}
+                        disabled={!canEdit}
+                        onClick={() => toggleServiceType(st.name)}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                          isSelected
+                            ? 'bg-abb-red text-white border-abb-red shadow-xs'
+                            : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400 hover:bg-slate-100'
+                        } ${!canEdit ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
+                      >
+                        <span className="text-[11px]">{isSelected ? '✓' : '+'}</span>
+                        <span>{st.name}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 

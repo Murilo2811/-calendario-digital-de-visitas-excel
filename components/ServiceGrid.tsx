@@ -125,6 +125,7 @@ const cellValue = (s: Service, key: string, techs: Technician[], allServices?: S
         case 'client': return s.client || '';
         case 'manager': return s.manager || '';
         case 'os': return s.os || '';
+        case 'serviceTypes': return (s.serviceTypes || []).join(', ');
         case 'description': return s.description || '';
         case 'hp': return String(s.hp ?? '');
         case 'ht': return String(s.ht ?? '');
@@ -692,6 +693,25 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                         />
                     </td>
 
+                    {/* Serviços Column */}
+                    <td className="px-2 py-1 h-10 border-b border-slate-100 min-w-[140px]">
+                        <div className="flex flex-wrap gap-1 items-center max-h-8 overflow-hidden">
+                            {service.serviceTypes && service.serviceTypes.length > 0 ? (
+                                service.serviceTypes.map(st => (
+                                    <span
+                                        key={st}
+                                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 truncate"
+                                        title={st}
+                                    >
+                                        {st}
+                                    </span>
+                                ))
+                            ) : (
+                                <span className="text-[11px] text-slate-300 italic">-</span>
+                            )}
+                        </div>
+                    </td>
+
                     <td className="p-0 h-10 border-b border-slate-100 min-w-[160px]">
                         <EditableCell
                             value={service.description}
@@ -1013,6 +1033,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
                                 { key: 'client', label: 'Cliente', cls: 'min-w-[200px]', align: 'left' as const, popoverAlign: 'left' as const },
                                 { key: 'manager', label: 'Manager', cls: 'w-24 min-w-[85px]', align: 'left' as const, popoverAlign: 'left' as const },
                                 { key: 'os', label: 'OS', cls: 'w-28 min-w-[100px]', align: 'left' as const, popoverAlign: 'left' as const },
+                                { key: 'serviceTypes', label: 'Serviços', cls: 'min-w-[140px]', align: 'left' as const, popoverAlign: 'left' as const },
                                 { key: 'description', label: 'Descrição', cls: 'min-w-[160px]', align: 'left' as const, popoverAlign: 'left' as const },
                                 { key: 'hp', label: 'HP', cls: 'w-16 min-w-[60px]', align: 'center' as const, popoverAlign: 'left' as const },
                                 { key: 'ht', label: 'HT', cls: 'w-16 min-w-[60px]', align: 'center' as const, popoverAlign: 'left' as const },

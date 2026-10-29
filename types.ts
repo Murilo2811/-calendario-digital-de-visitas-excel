@@ -34,6 +34,19 @@ export interface Client {
   phone?: string;
 }
 
+export interface ServiceType {
+  id: string;
+  name: string;
+}
+
+export const DEFAULT_SERVICE_TYPES: ServiceType[] = [
+  { id: 'st-calib', name: 'Calibração' },
+  { id: 'st-startup', name: 'Startup' },
+  { id: 'st-trein', name: 'Treinamento' },
+  { id: 'st-emerg', name: 'Atendimento Emergencial' },
+  { id: 'st-outros', name: 'Outros' }
+];
+
 export interface Service {
   id: string;
   week: number;
@@ -41,6 +54,7 @@ export interface Service {
   manager: string;
   os: string; // Order Service
   description: string;
+  serviceTypes?: string[]; // Serviços específicos prestados na atividade
 
   // Hours Metrics
   hp: number; // Horas Planejadas

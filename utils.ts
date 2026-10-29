@@ -74,21 +74,34 @@ export const getTechnicianConflicts = (
 
 /**
  * Returns all services for the same client that overlap with the specified date range.
+ * Regra: Só é considerado conflito se houver pelo menos um serviço em comum entre as atividades
+ * (ou se ambas não tiverem serviços especificados). Serviços distintos no mesmo cliente/data não conflitam.
  */
 export const getClientConflicts = (
   services: Service[],
   clientName: string,
   startDate: string,
   endDate: string,
-  excludeServiceId?: string
+  excludeServiceId?: string,
+  serviceTypes?: string[]
 ): Service[] => {
   if (!clientName || !startDate || !endDate) return [];
   const normalizedClient = normClient(clientName);
+  const targetTypes = (serviceTypes || []).map(t => t.trim().toLowerCase()).filter(Boolean);
 
   return services.filter(s => {
     if (excludeServiceId && s.id === excludeServiceId) return false;
     if (!s.client || normClient(s.client) !== normalizedClient) return false;
-    return areDatesOverlapping(startDate, endDate, s.startDate, s.endDate);
+    if (!areDatesOverlapping(startDate, endDate, s.startDate, s.endDate)) return false;
+
+    const sTypes = (s.serviceTypes || []).map(t => t.trim().toLowerCase()).filter(Boolean);
+
+    // Se ambas as atividades estiverem sem serviço especificado, acusa sobreposição preventiva
+    if (targetTypes.length === 0 && sTypes.length === 0) return true;
+
+    // Se houver serviços informados, só considera sobreposição se houver pelo menos um serviço em comum
+    const hasCommonService = targetTypes.some(t => sTypes.includes(t));
+    return hasCommonService;
   });
 };
 
@@ -170,12 +183,14 @@ export interface OverlapConflictDetail {
   formattedVisitPeriod: string;   // "DD/MM/YYYY a DD/MM/YYYY"
   os?: string;
   summaryText: string;
+  currentServiceTypes?: string[];
+  conflictingServiceTypes?: string[];
 }
 
 /**
  * Retorna todos os conflitos detalhados de sobreposição (de técnico e de empresa/cliente),
  * indicando exatamente o período de sobreposição (intersecção), período total da visita conflitante,
- * qual a empresa e qual(is) técnico(s).
+ * qual a empresa, qual(is) técnico(s) e os serviços prestados.
  */
 export const getDetailedConflicts = (
   services: Service[],
@@ -186,9 +201,11 @@ export const getDetailedConflicts = (
     endDate?: string;
     client?: string;
     technicianIds?: string[];
+    serviceTypes?: string[];
+    os?: string;
   }
 ): OverlapConflictDetail[] => {
-  const { id, startDate, endDate, client, technicianIds } = current;
+  const { id, startDate, endDate, client, technicianIds, serviceTypes } = current;
   if (!startDate || !endDate) return [];
 
   const details: OverlapConflictDetail[] = [];
@@ -198,6 +215,10 @@ export const getDetailedConflicts = (
     const t = technicians.find(item => item.id === tId);
     return t ? t.name : tId;
   };
+
+  const currentTypesLabel = (serviceTypes && serviceTypes.length > 0)
+    ? serviceTypes.join(', ')
+    : 'Sem serviço especificado';
 
   // 1. Conflitos de Técnico (mesmo técnico em outra atividade no período)
   if (technicianIds && technicianIds.length > 0) {
@@ -217,6 +238,9 @@ export const getDetailedConflicts = (
 
           const formattedOverlapPeriod = `${overlapStartFmt} a ${overlapEndFmt}`;
           const formattedVisitPeriod = `${visitStartFmt} a ${visitEndFmt}`;
+          const confTypesLabel = (conf.serviceTypes && conf.serviceTypes.length > 0)
+            ? conf.serviceTypes.join(', ')
+            : 'Sem serviço especificado';
 
           details.push({
             id: key,
@@ -231,16 +255,18 @@ export const getDetailedConflicts = (
             formattedOverlapPeriod,
             formattedVisitPeriod,
             os: conf.os,
-            summaryText: `Técnico: ${techName} | Empresa: ${conf.client} | Sobreposição: ${formattedOverlapPeriod} (Visita conflitante: ${formattedVisitPeriod})${conf.os ? ` | OS: ${conf.os}` : ''}`
+            currentServiceTypes: serviceTypes || [],
+            conflictingServiceTypes: conf.serviceTypes || [],
+            summaryText: `Técnico: ${techName} | Empresa: ${conf.client} | Sobreposição: ${formattedOverlapPeriod} (Visita conflitante: ${formattedVisitPeriod})${conf.os ? ` | OS: ${conf.os}` : ''} | Serviços Conflitantes: "${confTypesLabel}" vs Atual: "${currentTypesLabel}"`
           });
         }
       });
     });
   }
 
-  // 2. Conflitos de Empresa/Cliente (mesma empresa com outra atividade no período)
+  // 2. Conflitos de Empresa/Cliente (mesma empresa com serviço coincidente no período)
   if (client && client.trim()) {
-    const clientConflicts = getClientConflicts(services, client, startDate, endDate, id);
+    const clientConflicts = getClientConflicts(services, client, startDate, endDate, id, serviceTypes);
     clientConflicts.forEach(conf => {
       const isAlreadyTechConflict = technicianIds?.some(tId => seenServiceKeys.has(`tech-${tId}-${conf.id}`));
       const key = `client-${conf.id}`;
@@ -260,6 +286,10 @@ export const getDetailedConflicts = (
           .map(tId => getTechName(tId))
           .join(', ') || 'Sem técnico';
 
+        const confTypesLabel = (conf.serviceTypes && conf.serviceTypes.length > 0)
+          ? conf.serviceTypes.join(', ')
+          : 'Sem serviço especificado';
+
         details.push({
           id: key,
           type: 'CLIENT',
@@ -272,9 +302,11 @@ export const getDetailedConflicts = (
           formattedOverlapPeriod,
           formattedVisitPeriod,
           os: conf.os,
+          currentServiceTypes: serviceTypes || [],
+          conflictingServiceTypes: conf.serviceTypes || [],
           summaryText: isAlreadyTechConflict
-            ? `Empresa: ${conf.client} (mesmo técnico e cliente) | Técnico(s): ${confTechNames} | Sobreposição: ${formattedOverlapPeriod} (Visita conflitante: ${formattedVisitPeriod})${conf.os ? ` | OS: ${conf.os}` : ''}`
-            : `Empresa: ${conf.client} | Técnico(s): ${confTechNames} | Sobreposição: ${formattedOverlapPeriod} (Visita conflitante: ${formattedVisitPeriod})${conf.os ? ` | OS: ${conf.os}` : ''}`
+            ? `Empresa: ${conf.client} (mesmo técnico e cliente) | Técnico(s): ${confTechNames} | Sobreposição: ${formattedOverlapPeriod} (Visita conflitante: ${formattedVisitPeriod})${conf.os ? ` | OS: ${conf.os}` : ''} | Serviço: ${confTypesLabel}`
+            : `Empresa: ${conf.client} | Técnico(s): ${confTechNames} | Sobreposição: ${formattedOverlapPeriod} (Visita conflitante: ${formattedVisitPeriod})${conf.os ? ` | OS: ${conf.os}` : ''} | Serviço em comum: ${confTypesLabel}`
         });
       }
     });
@@ -350,6 +382,7 @@ export const findConflictResolutionSuggestions = (
     endDate?: string;
     client?: string;
     technicianIds?: string[];
+    serviceTypes?: string[];
   },
   maxDaysSearch = 90
 ): ConflictResolutionSuggestion => {
@@ -395,7 +428,7 @@ export const findConflictResolutionSuggestions = (
   // Se houver conflito de cliente no período atual, trocar o técnico NÃO resolve a sobreposição da empresa,
   // mas se for apenas conflito de técnico, resolve perfeitamente!
   const hasClientConflict = client
-    ? getClientConflicts(services, client, startDate, endDate, id).length > 0
+    ? getClientConflicts(services, client, startDate, endDate, id, serviceData.serviceTypes).length > 0
     : false;
 
   const techSwapOptions = hasClientConflict
@@ -417,8 +450,8 @@ export const findConflictResolutionSuggestions = (
     const candStartStr = format(candStart, 'yyyy-MM-dd');
     const candEndStr = format(candEnd, 'yyyy-MM-dd');
 
-    // Verifica se a empresa/cliente tem conflito nesse intervalo
-    if (client && getClientConflicts(services, client, candStartStr, candEndStr, id).length > 0) {
+    // Verifica se a empresa/cliente tem conflito nesse intervalo (respeitando tipos de serviço)
+    if (client && getClientConflicts(services, client, candStartStr, candEndStr, id, serviceData.serviceTypes).length > 0) {
       return null;
     }
 

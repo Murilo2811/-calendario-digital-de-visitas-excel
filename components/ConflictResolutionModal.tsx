@@ -87,19 +87,45 @@ export const ConflictResolutionModal: React.FC<ConflictResolutionModalProps> = (
             </div>
 
             {/* Lista dos conflitos detectados */}
-            <div className="pt-2 border-t border-slate-200 space-y-1">
+            <div className="pt-2 border-t border-slate-200 space-y-1.5">
               <span className="text-[11px] font-bold text-amber-900 uppercase tracking-wider block">
                 Conflito(s) em aberto ({suggestions.conflicts.length}):
               </span>
-              {suggestions.conflicts.map(c => (
-                <div key={c.id} className="text-[11px] text-slate-700 bg-white p-2 rounded border border-amber-200 flex items-start gap-2">
-                  <span className="text-amber-600 shrink-0 mt-0.5">⚠️</span>
-                  <div>
-                    <span className="font-semibold text-slate-900">{c.title}: </span>
-                    <span>{c.summaryText}</span>
+              {suggestions.conflicts.map(c => {
+                const currentTypes = c.currentServiceTypes || [];
+                const confTypes = c.conflictingServiceTypes || [];
+                return (
+                  <div key={c.id} className="text-[11px] text-slate-700 bg-white p-2.5 rounded-lg border border-amber-200 space-y-1.5">
+                    <div className="flex items-start gap-2">
+                      <span className="text-amber-600 shrink-0 mt-0.5">⚠️</span>
+                      <div className="flex-1">
+                        <span className="font-semibold text-slate-900">{c.title}: </span>
+                        <span>{c.summaryText}</span>
+                      </div>
+                    </div>
+                    {(currentTypes.length > 0 || confTypes.length > 0) && (
+                      <div className="flex items-center gap-2 pt-1 border-t border-slate-100 text-[10px] flex-wrap">
+                        <span className="font-bold text-slate-500">Serviços:</span>
+                        {currentTypes.length > 0 ? (
+                          <span className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded font-medium border border-slate-200">
+                            Atual: {currentTypes.join(', ')}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">Atual: Sem serviço</span>
+                        )}
+                        <span className="text-slate-300">•</span>
+                        {confTypes.length > 0 ? (
+                          <span className="bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded font-medium border border-amber-200">
+                            Conflitante: {confTypes.join(', ')}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 italic">Conflitante: Sem serviço</span>
+                        )}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

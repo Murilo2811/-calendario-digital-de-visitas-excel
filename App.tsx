@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
-import { Service, Technician, ViewMode, ServiceStatus, TechType, Client, User, AppSettings } from './types';
+import { Service, Technician, ViewMode, ServiceStatus, TechType, Client, User, AppSettings, ServiceType, DEFAULT_SERVICE_TYPES } from './types';
 import { TECHNICIANS, INITIAL_CLIENTS, STATUS_STYLE } from './constants';
 import { ServiceGrid } from './components/ServiceGrid';
 import { ResourceTimeline } from './components/ResourceTimeline';
@@ -7,6 +7,7 @@ import { AddServiceModal } from './components/AddServiceModal';
 import { QuickAddModal } from './components/QuickAddModal';
 import { TechManagerModal } from './components/TechManagerModal';
 import { ClientManagerModal } from './components/ClientManagerModal';
+import { ServiceTypeManagerModal } from './components/ServiceTypeManagerModal';
 import { HelpModal } from './components/HelpModal';
 import { LoginPage } from './components/LoginPage';
 import { SettingsModal } from './components/SettingsModal';
@@ -91,7 +92,8 @@ import {
     Save,
     Check,
     Undo2,
-    Redo2
+    Redo2,
+    Wrench
 } from 'lucide-react';
 
 // Helper to sort technicians: Internal first, then Alphabetical by Name
@@ -108,11 +110,13 @@ const App: React.FC = () => {
     const [services, setServices] = useState<Service[]>([]);
     const [technicians, setTechnicians] = useState<Technician[]>(() => sortTechnicians(TECHNICIANS));
     const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
+    const [serviceTypes, setServiceTypes] = useState<ServiceType[]>(DEFAULT_SERVICE_TYPES);
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
     const [isTechModalOpen, setIsTechModalOpen] = useState(false);
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+    const [isServiceTypeModalOpen, setIsServiceTypeModalOpen] = useState(false);
     const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
     const [isCalibrationAlertsModalOpen, setIsCalibrationAlertsModalOpen] = useState(false);
     const [isUnsavedExitModalOpen, setIsUnsavedExitModalOpen] = useState(false);
@@ -178,6 +182,7 @@ const App: React.FC = () => {
         services: Service[];
         technicians: Technician[];
         clients: Client[];
+        serviceTypes: ServiceType[];
     }
 
     const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
@@ -185,12 +190,12 @@ const App: React.FC = () => {
 
     const recordSnapshot = useCallback(() => {
         setUndoStack(prev => {
-            const next = [...prev, { services, technicians, clients }];
+            const next = [...prev, { services, technicians, clients, serviceTypes }];
             if (next.length > 50) return next.slice(next.length - 50);
             return next;
         });
         setRedoStack([]);
-    }, [services, technicians, clients]);
+    }, [services, technicians, clients, serviceTypes]);
 
     const handleUndo = useCallback(() => {
         setUndoStack(prevUndo => {
@@ -199,7 +204,7 @@ const App: React.FC = () => {
             const nextUndo = prevUndo.slice(0, prevUndo.length - 1);
 
             setRedoStack(prevRedo => {
-                const next = [...prevRedo, { services, technicians, clients }];
+                const next = [...prevRedo, { services, technicians, clients, serviceTypes }];
                 if (next.length > 50) return next.slice(next.length - 50);
                 return next;
             });
@@ -207,11 +212,12 @@ const App: React.FC = () => {
             setServices(lastSnapshot.services);
             setTechnicians(lastSnapshot.technicians);
             setClients(lastSnapshot.clients);
+            if (lastSnapshot.serviceTypes) setServiceTypes(lastSnapshot.serviceTypes);
 
             showToast('Ação desfeita (Undo)');
             return nextUndo;
         });
-    }, [services, technicians, clients, showToast]);
+    }, [services, technicians, clients, serviceTypes, showToast]);
 
     const handleRedo = useCallback(() => {
         setRedoStack(prevRedo => {
@@ -220,7 +226,7 @@ const App: React.FC = () => {
             const nextRedo = prevRedo.slice(0, prevRedo.length - 1);
 
             setUndoStack(prevUndo => {
-                const next = [...prevUndo, { services, technicians, clients }];
+                const next = [...prevUndo, { services, technicians, clients, serviceTypes }];
                 if (next.length > 50) return next.slice(next.length - 50);
                 return next;
             });
@@ -228,11 +234,12 @@ const App: React.FC = () => {
             setServices(nextSnapshot.services);
             setTechnicians(nextSnapshot.technicians);
             setClients(nextSnapshot.clients);
+            if (nextSnapshot.serviceTypes) setServiceTypes(nextSnapshot.serviceTypes);
 
             showToast('Ação refeita (Redo)');
             return nextRedo;
         });
-    }, [services, technicians, clients, showToast]);
+    }, [services, technicians, clients, serviceTypes, showToast]);
 
     const legendItems = Object.entries(STATUS_STYLE).map(([label, { bg }]) => ({ color: bg, label }));
 
@@ -293,13 +300,14 @@ const App: React.FC = () => {
                         if (data.technicians.length > 0) setTechnicians(sortTechnicians(data.technicians));
                         if (data.clients.length > 0) setClients(data.clients);
                         if (data.services.length > 0) setServices(syncServicesLastCalibration(cleanObsoleteCalibrationForecasts(data.services)));
+                        if (data.serviceTypes && data.serviceTypes.length > 0) setServiceTypes(data.serviceTypes);
 
                         if (data.users.length > 0) {
                             setUsers(data.users);
                         } else {
                             const defaultAdmin = await createDefaultAdmin();
                             setUsers([defaultAdmin]);
-                            await saveToNetworkServer(data.services, data.technicians, data.clients, [defaultAdmin]);
+                            await saveToNetworkServer(data.services, data.technicians, data.clients, [defaultAdmin], data.serviceTypes || DEFAULT_SERVICE_TYPES);
                         }
 
                         setExcelFileName(data.fileName || 'Calendario_Digital_Base.xlsx');
@@ -312,7 +320,7 @@ const App: React.FC = () => {
                         // Se o arquivo ainda não existe na rede, cria a planilha inicial automaticamente
                         const defaultAdmin = await createDefaultAdmin();
                         setUsers([defaultAdmin]);
-                        await saveToNetworkServer([], sortTechnicians(TECHNICIANS), INITIAL_CLIENTS, [defaultAdmin]);
+                        await saveToNetworkServer([], sortTechnicians(TECHNICIANS), INITIAL_CLIENTS, [defaultAdmin], DEFAULT_SERVICE_TYPES);
                         setExcelFileName('Calendario_Digital_Base.xlsx');
                         setIsExcelConnected(true);
                         setLoadCount(n => n + 1);
@@ -366,6 +374,9 @@ const App: React.FC = () => {
                 if (data.services.length > 0) {
                     setServices(syncServicesLastCalibration(cleanObsoleteCalibrationForecasts(data.services)));
                 }
+                if (data.serviceTypes && data.serviceTypes.length > 0) {
+                    setServiceTypes(data.serviceTypes);
+                }
 
                 // Carregar usuários ou criar admin padrão
                 if (data.users.length > 0) {
@@ -410,7 +421,7 @@ const App: React.FC = () => {
                 setUsers([defaultAdmin]);
 
                 // Salvar dados atuais no novo arquivo
-                await saveAllToExcel(handle, services, technicians, clients, [defaultAdmin]);
+                await saveAllToExcel(handle, services, technicians, clients, [defaultAdmin], serviceTypes);
 
                 setExcelHandle(handle);
                 setExcelFileName(handle.name);
@@ -455,7 +466,7 @@ const App: React.FC = () => {
         setIsSaving(true);
         try {
             if (isNetworkServer) {
-                const ok = await saveToNetworkServer(services, technicians, clients, users);
+                const ok = await saveToNetworkServer(services, technicians, clients, users, serviceTypes);
                 if (ok) {
                     markSaved();
                     showToast('Todas as alterações foram salvas na rede!');
@@ -463,7 +474,7 @@ const App: React.FC = () => {
                     showToast('Erro ao salvar no servidor de rede.');
                 }
             } else if (excelHandle) {
-                await saveAllToExcel(excelHandle, services, technicians, clients, users);
+                await saveAllToExcel(excelHandle, services, technicians, clients, users, serviceTypes);
                 markSaved();
                 showToast('Todas as alterações foram salvas no arquivo Excel!');
             }
@@ -1405,6 +1416,21 @@ const App: React.FC = () => {
         }
     };
 
+    const handleAddServiceType = (serviceType: ServiceType) => {
+        recordSnapshot();
+        setServiceTypes(prev => [...prev, serviceType]);
+    };
+
+    const handleUpdateServiceType = (id: string, name: string) => {
+        recordSnapshot();
+        setServiceTypes(prev => prev.map(st => st.id === id ? { ...st, name } : st));
+    };
+
+    const handleDeleteServiceType = (id: string) => {
+        recordSnapshot();
+        setServiceTypes(prev => prev.filter(st => st.id !== id));
+    };
+
     const handleExport = () => exportToExcel(services, technicians);
 
     // --- Auth Handlers ---
@@ -1429,9 +1455,9 @@ const App: React.FC = () => {
         try {
             let ok = false;
             if (isNetworkServer) {
-                ok = await saveToNetworkServer(services, technicians, clients, users);
+                ok = await saveToNetworkServer(services, technicians, clients, users, serviceTypes);
             } else if (excelHandle) {
-                await saveAllToExcel(excelHandle, services, technicians, clients, users);
+                await saveAllToExcel(excelHandle, services, technicians, clients, users, serviceTypes);
                 ok = true;
             } else {
                 showToast('Nenhum arquivo Excel conectado para salvar.');
@@ -1522,6 +1548,7 @@ const App: React.FC = () => {
                 onDelete={deleteService}
                 technicians={technicians}
                 clients={clients}
+                serviceTypes={serviceTypes}
                 serviceToEdit={editingService}
                 onGenerateRecurrence={handleGenerateRecurrence}
                 canEdit={userCanEdit}
@@ -1553,6 +1580,16 @@ const App: React.FC = () => {
                 onDelete={handleDeleteClient}
             />
 
+            <ServiceTypeManagerModal
+                isOpen={isServiceTypeModalOpen}
+                onClose={() => setIsServiceTypeModalOpen(false)}
+                serviceTypes={serviceTypes}
+                services={services}
+                onAdd={handleAddServiceType}
+                onUpdate={handleUpdateServiceType}
+                onDelete={handleDeleteServiceType}
+            />
+
             <HelpModal
                 isOpen={isHelpModalOpen}
                 onClose={() => setIsHelpModalOpen(false)}
@@ -1570,6 +1607,7 @@ const App: React.FC = () => {
                 onAddUser={handleAddUser}
                 onDeleteUser={handleDeleteUser}
                 onUpdateUser={handleUpdateUser}
+                onOpenServiceTypes={() => setIsServiceTypeModalOpen(true)}
             />
 
             <CalibrationAlertsModal
@@ -1802,6 +1840,9 @@ const App: React.FC = () => {
                                     </button>
                                     <button onClick={() => setIsClientModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Gerenciar Clientes">
                                         <Building2 size={18} />
+                                    </button>
+                                    <button onClick={() => setIsServiceTypeModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Gerenciar Serviços">
+                                        <Wrench size={18} />
                                     </button>
                                 </>
                             )}

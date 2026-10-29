@@ -1234,5 +1234,54 @@ test('findConflictResolutionSuggestions: propõe troca de técnico, antecipaçã
   assert.equal(suggestions.laterOption!.availableTechs.length > 0, true);
 });
 
+test('sobreposição por serviços: visitas no mesmo cliente na mesma data com serviços diferentes NÃO geram sobreposição', () => {
+  const existingService: Service = {
+    ...base(),
+    id: 's1',
+    client: 'Klabin',
+    startDate: '2026-11-01',
+    endDate: '2026-11-10',
+    technicianIds: ['t1'],
+    serviceTypes: ['Calibração']
+  };
+
+  // 1. Mesmo cliente, mesma data, técnicos diferentes, serviço DIFERENTE ('Startup') -> NÃO deve haver conflito de cliente
+  const conflictsDiffService = getDetailedConflicts([existingService], techs, {
+    id: 's2',
+    client: 'Klabin',
+    startDate: '2026-11-05',
+    endDate: '2026-11-08',
+    technicianIds: ['t2'],
+    serviceTypes: ['Startup']
+  });
+  assert.equal(conflictsDiffService.length, 0, 'Serviços diferentes no mesmo cliente não devem gerar sobreposição de empresa');
+
+  // 2. Mesmo cliente, mesma data, técnicos diferentes, serviço EM COMUM ('Calibração') -> DEVE gerar sobreposição de cliente
+  const conflictsSharedService = getDetailedConflicts([existingService], techs, {
+    id: 's3',
+    client: 'Klabin',
+    startDate: '2026-11-05',
+    endDate: '2026-11-08',
+    technicianIds: ['t2'],
+    serviceTypes: ['Calibração', 'Treinamento']
+  });
+  assert.equal(conflictsSharedService.length, 1);
+  assert.equal(conflictsSharedService[0].type, 'CLIENT');
+  assert.deepEqual(conflictsSharedService[0].conflictingServiceTypes, ['Calibração']);
+  assert.deepEqual(conflictsSharedService[0].currentServiceTypes, ['Calibração', 'Treinamento']);
+
+  // 3. Mesmo cliente, mesma data, MESMO técnico (t1) -> CONFLITO DE TÉCNICO permanece mesmo com serviços diferentes
+  const conflictsSameTechDiffService = getDetailedConflicts([existingService], techs, {
+    id: 's4',
+    client: 'Klabin',
+    startDate: '2026-11-05',
+    endDate: '2026-11-08',
+    technicianIds: ['t1'],
+    serviceTypes: ['Treinamento']
+  });
+  assert.equal(conflictsSameTechDiffService.length, 1);
+  assert.equal(conflictsSameTechDiffService[0].type, 'TECHNICIAN', 'Mesmo técnico alocado simultaneamente deve gerar conflito de técnico');
+});
+
 
 
