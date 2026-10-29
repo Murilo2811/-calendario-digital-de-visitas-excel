@@ -22,7 +22,8 @@ import {
     XCircle,
     Key,
     Lock,
-    Wrench
+    Wrench,
+    Calendar
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -38,6 +39,7 @@ interface SettingsModalProps {
     onDeleteUser: (id: string) => void;
     onUpdateUser: (id: string, updates: Partial<User>) => void;
     onOpenServiceTypes?: () => void;
+    onOpenHolidays?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -53,6 +55,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onDeleteUser,
     onUpdateUser,
     onOpenServiceTypes,
+    onOpenHolidays,
 }) => {
     const [activeTab, setActiveTab] = useState<'excel' | 'users' | 'account'>('excel');
     const [showNewPassword, setShowNewPassword] = useState(false);
@@ -337,6 +340,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                         >
                                             <Wrench size={14} className="text-slate-600" />
                                             Gerenciar Serviços
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Gerenciamento de Feriados (Admin) */}
+                            {adminAccess && onOpenHolidays && (
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-700 mb-3">Feriados</h3>
+                                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex items-center justify-between">
+                                        <div>
+                                            <p className="font-medium text-slate-800">Feriados Nacionais e Regionais</p>
+                                            <p className="text-xs text-slate-500">
+                                                Cadastrar feriados regionais com status e visual de finais de semana
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                onClose();
+                                                onOpenHolidays();
+                                            }}
+                                            className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                                        >
+                                            <Calendar size={14} className="text-slate-600" />
+                                            Gerenciar Feriados
                                         </button>
                                     </div>
                                 </div>

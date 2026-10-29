@@ -6,7 +6,7 @@ export const normClient = (client?: string): string => (client || '').trim().toL
 /** Previsão de calibração gerada automaticamente (substituível numa nova recorrência). */
 export const isAutoForecast = (s: { id: string; description?: string }): boolean =>
   (s.description || '').includes('Calibração Prevista') || s.id.startsWith('svc-forecast-');
-import type { Service, Technician } from './types';
+import type { Service, Technician, RegionalHoliday } from './types';
 import { addMonths } from 'date-fns/addMonths';
 import { differenceInDays } from 'date-fns/differenceInDays';
 import { eachDayOfInterval } from 'date-fns/eachDayOfInterval';
@@ -707,15 +707,27 @@ export const getCalibrationStatus = (
 };
 
 /**
- * Utility to adjust a date to Monday if it falls on Saturday or Sunday.
+ * Ajusta a data para o próximo dia útil caso ela caia em final de semana ou feriado (nacional ou regional).
  */
-const adjustToNextMondayIfWeekend = (date: Date): Date => (isWeekend(date) ? nextMonday(date) : date);
+export const adjustToNextWorkingDay = (date: Date, regionalHolidays?: RegionalHoliday[]): Date => {
+  let curr = date;
+  while (isNonWorkingDay(curr, regionalHolidays).isNonWorking) {
+    curr = addDays(curr, 1);
+  }
+  return curr;
+};
+
+/**
+ * Utilitário compatível com versões anteriores: avança para o próximo dia útil se for fim de semana ou feriado.
+ */
+const adjustToNextMondayIfWeekend = (date: Date, regionalHolidays?: RegionalHoliday[]): Date =>
+  adjustToNextWorkingDay(date, regionalHolidays);
 
 /**
  * Cria múltiplos serviços de previsão de calibração recorrentes até um horizonte máximo (padrão: 6 meses, máximo: 12 meses).
  * - A recorrência parte estritamente da data de início (startDate) da atividade base selecionada.
  * - Garante sequência cronológica: início < término para cada ciclo, preservando a duração em dias da atividade original.
- * - Se a data calculada cair em sábado ou domingo, ajusta o início para a segunda-feira seguinte.
+ * - Se a data calculada cair em sábado, domingo ou feriado, ajusta o início para o próximo dia útil subsequente.
  * - Periodicidade máxima de 12 meses.
  * - Cada ciclo subsequente encadeia a partir do ciclo anterior.
  */
@@ -724,7 +736,8 @@ export const createRecurringCalibrationForecasts = (
   technicians: Technician[],
   existingServices: Service[],
   maxMonths: number = 6,
-  overridePeriod?: number
+  overridePeriod?: number,
+  regionalHolidays?: RegionalHoliday[]
 ): Service[] => {
   const rawPeriod = (overridePeriod && overridePeriod > 0) ? overridePeriod : baseService.period;
   if (!rawPeriod || rawPeriod <= 0) return [];
@@ -752,8 +765,8 @@ export const createRecurringCalibrationForecasts = (
     !(s.status === ServiceStatus.PREDICTED && s.startDate > baseService.startDate);
 
   for (let months = period; months <= maxMonths; months += period) {
-    // Projeta o início somando o período e joga para segunda-feira se cair no fim de semana
-    const cycleStart = adjustToNextMondayIfWeekend(addMonths(currentRefStart, period));
+    // Projeta o início somando o período e joga para o próximo dia útil se cair no fim de semana ou feriado
+    const cycleStart = adjustToNextWorkingDay(addMonths(currentRefStart, period), regionalHolidays);
     // Fim é rigorosamente cronológico e preserva a duração exata da visita
     const cycleEnd = addDays(cycleStart, duration - 1);
     const cycle = months / period;
@@ -1229,12 +1242,21 @@ export const applyBatchServiceUpdates = (
 };
 
 /**
- * Retorna o nome do feriado nacional brasileiro se a data for feriado, ou null.
+ * Retorna o nome do feriado nacional ou regional se a data for feriado, ou null.
  */
-export const getBrazilianHoliday = (date: Date): string | null => {
+export const getBrazilianHoliday = (date: Date, regionalHolidays?: RegionalHoliday[]): string | null => {
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
   const day = date.getDate();
+
+  // 1. Feriados regionais anuais personalizados (prioridade se houver mesmo dia)
+  if (regionalHolidays && regionalHolidays.length > 0) {
+    const regional = regionalHolidays.find(h => h.day === day && h.month === month);
+    if (regional) {
+      return regional.name;
+    }
+  }
+
   const mmdd = `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
   // Feriados nacionais fixos (formato MM-DD)
@@ -1288,12 +1310,15 @@ export const getBrazilianHoliday = (date: Date): string | null => {
 };
 
 /**
- * Determina se a data é um dia não útil (final de semana ou feriado nacional).
+ * Determina se a data é um dia não útil (final de semana ou feriado nacional/regional).
  */
-export const isNonWorkingDay = (date: Date): { isWeekend: boolean; holidayName: string | null; isNonWorking: boolean } => {
+export const isNonWorkingDay = (
+  date: Date,
+  regionalHolidays?: RegionalHoliday[]
+): { isWeekend: boolean; holidayName: string | null; isNonWorking: boolean } => {
   const dayOfWeek = date.getDay();
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-  const holidayName = getBrazilianHoliday(date);
+  const holidayName = getBrazilianHoliday(date, regionalHolidays);
   return {
     isWeekend,
     holidayName,
@@ -1307,7 +1332,8 @@ export const isNonWorkingDay = (date: Date): { isWeekend: boolean; holidayName: 
  */
 export function generateNextCalibrationService(
   currentService: Service,
-  existingServices: Service[]
+  existingServices: Service[],
+  regionalHolidays?: RegionalHoliday[]
 ): Service | null {
   // Identifica a data da próxima calibração
   let nextCalStr = currentService.nextCalibration;
@@ -1329,7 +1355,7 @@ export function generateNextCalibrationService(
   }
 
   const parsedTargetStart = parseISO(nextCalStr);
-  const targetStart = adjustToNextMondayIfWeekend(parsedTargetStart);
+  const targetStart = adjustToNextWorkingDay(parsedTargetStart, regionalHolidays);
 
   // Calcula a duração da visita original
   let duration = 1;

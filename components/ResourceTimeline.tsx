@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Service, ServiceStatus, Technician, TechType } from '../types';
+import { Service, ServiceStatus, Technician, TechType, RegionalHoliday } from '../types';
 import { getDaysInRange, getCalibrationStatus, getDetailedConflicts, formatConflictsTooltipText, checkPeriodExceeded, isNonWorkingDay } from '../utils';
 import { STATUS_STYLE } from '../constants';
 import { addDays } from 'date-fns/addDays';
@@ -21,6 +21,7 @@ import { ptBR } from 'date-fns/locale/pt-BR';
 interface ResourceTimelineProps {
     services: Service[];
     technicians: Technician[];
+    regionalHolidays?: RegionalHoliday[];
     rangeStart: Date;
     rangeEnd: Date;
     isYearView?: boolean;
@@ -41,6 +42,7 @@ interface DragState {
 export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
     services,
     technicians,
+    regionalHolidays = [],
     rangeStart,
     rangeEnd,
     isYearView: isYearViewProp,
@@ -476,7 +478,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                         {/* Day Row */}
                         <div className="flex">
                             {days.map((d) => {
-                                const { isWeekend, holidayName } = isNonWorkingDay(d);
+                                const { isWeekend, holidayName, isNonWorking } = isNonWorkingDay(d, regionalHolidays);
                                 const dayTitle = holidayName
                                     ? `Feriado: ${holidayName} (${format(d, 'dd/MM/yyyy')})`
                                     : (isWeekend ? `${format(d, 'EEEE, dd/MM/yyyy', { locale: ptBR })}` : format(d, 'dd/MM/yyyy'));
@@ -485,11 +487,14 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                         key={d.toISOString()}
                                         title={dayTitle}
                                         className={`flex-1 ${cellMinWidth} border-r border-slate-200 last:border-r-0 flex flex-col items-center justify-center h-8 transition-colors ${
-                                            isWeekend ? 'bg-abb-red text-white' : 'text-slate-500'
+                                            isNonWorking ? 'bg-abb-red text-white' : 'text-slate-500'
                                         }`}
                                     >
-                                        <span className="font-bold text-sm leading-tight">{getDate(d)}</span>
-                                        <span className={`text-[9px] uppercase font-semibold leading-tight ${isWeekend ? 'text-white/90' : ''}`}>
+                                        <span className="font-bold text-sm leading-tight flex items-center gap-0.5">
+                                            {getDate(d)}
+                                            {holidayName && <span className="text-[9px] text-yellow-300 font-black leading-none" title={holidayName}>★</span>}
+                                        </span>
+                                        <span className={`text-[9px] uppercase font-semibold leading-tight ${isNonWorking ? 'text-white/90' : ''}`}>
                                             {format(d, 'EEE', { locale: ptBR })}
                                         </span>
                                     </div>
@@ -529,12 +534,12 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                 <div className="flex-grow relative group-hover:bg-abb-red/5">
                                     <div className="absolute inset-0 flex pointer-events-none z-0">
                                         {days.map((d, idx) => {
-                                            const { isWeekend } = isNonWorkingDay(d);
+                                            const { isNonWorking } = isNonWorkingDay(d, regionalHolidays);
                                             return (
                                                 <div
                                                     key={idx}
                                                     className={`flex-1 border-r border-slate-100 h-full ${cellMinWidth} ${
-                                                        isWeekend ? 'bg-abb-red border-r-white/30' : ''
+                                                        isNonWorking ? 'bg-abb-red border-r-white/30' : ''
                                                     }`}
                                                 />
                                             );
@@ -698,7 +703,7 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                     </div>
                                     <div className="flex">
                                         {days.map((d) => {
-                                            const { isWeekend, holidayName } = isNonWorkingDay(d);
+                                            const { isWeekend, holidayName, isNonWorking } = isNonWorkingDay(d, regionalHolidays);
                                             const dayTitle = holidayName
                                                 ? `Feriado: ${holidayName} (${format(d, 'dd/MM/yyyy')})`
                                                 : (isWeekend ? `${format(d, 'EEEE, dd/MM/yyyy', { locale: ptBR })}` : format(d, 'dd/MM/yyyy'));
@@ -707,14 +712,15 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                                     key={d.getDate()}
                                                     title={dayTitle}
                                                     className={`flex-1 border-r border-slate-200 last:border-r-0 flex flex-col items-center justify-center h-10 min-w-[24px] transition-colors ${
-                                                        isWeekend ? 'bg-abb-red text-white' : ''
+                                                        isNonWorking ? 'bg-abb-red text-white' : ''
                                                     }`}
                                                 >
-                                                    <span className={`text-[8px] font-bold uppercase leading-none mb-0.5 ${isWeekend ? 'text-white/90' : 'text-slate-500'}`}>
+                                                    <span className={`text-[8px] font-bold uppercase leading-none mb-0.5 ${isNonWorking ? 'text-white/90' : 'text-slate-500'}`}>
                                                         {format(d, 'EEE', { locale: ptBR }).slice(0, 1)}
                                                     </span>
-                                                    <span className={`text-sm font-bold leading-none ${isWeekend ? 'text-white' : 'text-slate-800'}`}>
-                                                        {getDate(d)}
+                                                    <span className="text-sm font-bold leading-none flex items-center justify-center gap-0.5">
+                                                        <span className={isNonWorking ? 'text-white' : 'text-slate-800'}>{getDate(d)}</span>
+                                                        {holidayName && <span className="text-[8px] text-yellow-300 font-black leading-none" title={holidayName}>★</span>}
                                                     </span>
                                                 </div>
                                             );
@@ -756,12 +762,12 @@ export const ResourceTimeline: React.FC<ResourceTimelineProps> = ({
                                             <div className="flex-grow relative group hover:bg-abb-red/5">
                                                 <div className="absolute inset-0 flex pointer-events-none z-0">
                                                     {days.map((d, i) => {
-                                                        const { isWeekend } = isNonWorkingDay(d);
+                                                        const { isNonWorking } = isNonWorkingDay(d, regionalHolidays);
                                                         return (
                                                             <div
                                                                 key={i}
                                                                 className={`flex-1 border-r border-slate-100 h-full ${
-                                                                    isWeekend ? 'bg-abb-red border-r-white/30' : ''
+                                                                    isNonWorking ? 'bg-abb-red border-r-white/30' : ''
                                                                 }`}
                                                             />
                                                         );

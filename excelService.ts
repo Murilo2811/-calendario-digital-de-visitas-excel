@@ -5,7 +5,7 @@
  */
 
 import { ServiceStatus, TechType, DEFAULT_SERVICE_TYPES } from './types';
-import type { Service, Technician, Client, User, UserRole, ServiceType } from './types';
+import type { Service, Technician, Client, User, UserRole, ServiceType, RegionalHoliday } from './types';
 import * as XLSX from 'xlsx';
 import { isValid } from 'date-fns/isValid';
 import { parseISO } from 'date-fns/parseISO';
@@ -41,6 +41,7 @@ const SHEET_TECHNICIANS = 'Tecnicos';
 const SHEET_CLIENTS = 'Clientes';
 const SHEET_USERS = 'Usuarios';
 const SHEET_SERVICE_TYPES = 'Servicos';
+const SHEET_HOLIDAYS = 'Feriados';
 
 // --- IndexedDB Helpers ---
 const DB_NAME = 'ServiceSyncDB';
@@ -267,6 +268,7 @@ export const parseWorkbookData = (workbook: XLSX.WorkBook): {
   clients: Client[];
   users: User[];
   serviceTypes: ServiceType[];
+  regionalHolidays: RegionalHoliday[];
 } => {
   // 1. Técnicos
   const techSheet = workbook.Sheets[SHEET_TECHNICIANS];
@@ -375,7 +377,23 @@ export const parseWorkbookData = (workbook: XLSX.WorkBook): {
       })
     : [];
 
-  return { services, technicians, clients, users, serviceTypes };
+  // 6. Feriados Regionais
+  const holidaySheet = workbook.Sheets[SHEET_HOLIDAYS];
+  const regionalHolidays: RegionalHoliday[] = holidaySheet
+    ? XLSX.utils.sheet_to_json<Record<string, unknown>>(holidaySheet).map((row, index) => {
+        const name = String(row['Nome'] || row['Feriado'] || row['Descricao'] || '').trim();
+        const day = Number(row['Dia'] || row['Day'] || 0);
+        const month = Number(row['Mes'] || row['Mês'] || row['Month'] || 0);
+        return {
+          id: String(row['ID'] || `hol-${index}-${Date.now()}`),
+          name,
+          day,
+          month,
+        };
+      }).filter(h => Boolean(h.name) && h.day >= 1 && h.day <= 31 && h.month >= 1 && h.month <= 12)
+    : [];
+
+  return { services, technicians, clients, users, serviceTypes, regionalHolidays };
 };
 
 /**
@@ -387,6 +405,7 @@ export const readAllFromExcel = async (handle: FileHandle): Promise<{
   clients: Client[];
   users: User[];
   serviceTypes: ServiceType[];
+  regionalHolidays: RegionalHoliday[];
 }> => {
   const workbook = await readWorkbook(handle);
   return parseWorkbookData(workbook);
@@ -426,6 +445,7 @@ export const loadFromNetworkServer = async (): Promise<{
   clients: Client[];
   users: User[];
   serviceTypes: ServiceType[];
+  regionalHolidays: RegionalHoliday[];
   fileName: string;
 } | null> => {
   try {
@@ -451,7 +471,8 @@ export const buildWorkbook = (
   technicians: Technician[],
   clients: Client[],
   users: User[],
-  serviceTypes: ServiceType[] = DEFAULT_SERVICE_TYPES
+  serviceTypes: ServiceType[] = DEFAULT_SERVICE_TYPES,
+  regionalHolidays: RegionalHoliday[] = []
 ): XLSX.WorkBook => {
   const workbook = XLSX.utils.book_new();
 
@@ -527,6 +548,13 @@ export const buildWorkbook = (
     'Nome': st.name,
   })), SHEET_SERVICE_TYPES, [20, 30]);
 
+  appendSheet(regionalHolidays.map(h => ({
+    'ID': h.id,
+    'Nome': h.name,
+    'Dia': h.day,
+    'Mes': h.month,
+  })), SHEET_HOLIDAYS, [20, 30, 8, 8]);
+
   return workbook;
 };
 
@@ -544,10 +572,11 @@ export const saveToNetworkServer = async (
   technicians: Technician[],
   clients: Client[],
   users: User[],
-  serviceTypes: ServiceType[] = DEFAULT_SERVICE_TYPES
+  serviceTypes: ServiceType[] = DEFAULT_SERVICE_TYPES,
+  regionalHolidays: RegionalHoliday[] = []
 ): Promise<boolean> => {
   try {
-    const blob = workbookToBlob(buildWorkbook(services, technicians, clients, users, serviceTypes));
+    const blob = workbookToBlob(buildWorkbook(services, technicians, clients, users, serviceTypes, regionalHolidays));
 
     const res = await fetch('/api/excel/save', {
       method: 'POST',
@@ -571,9 +600,10 @@ export const saveAllToExcel = async (
   technicians: Technician[],
   clients: Client[],
   users: User[] = [],
-  serviceTypes: ServiceType[] = DEFAULT_SERVICE_TYPES
+  serviceTypes: ServiceType[] = DEFAULT_SERVICE_TYPES,
+  regionalHolidays: RegionalHoliday[] = []
 ): Promise<void> => {
-  const blob = workbookToBlob(buildWorkbook(services, technicians, clients, users, serviceTypes));
+  const blob = workbookToBlob(buildWorkbook(services, technicians, clients, users, serviceTypes, regionalHolidays));
 
   // Usar File System Access API para escrever
   const writable = await handle.createWritable();

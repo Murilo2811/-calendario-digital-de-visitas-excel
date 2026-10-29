@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect, useLayoutEffect, useCallback } from 'react';
-import { Service, Technician, ViewMode, ServiceStatus, TechType, Client, User, AppSettings, ServiceType, DEFAULT_SERVICE_TYPES } from './types';
+import { Service, Technician, ViewMode, ServiceStatus, TechType, Client, User, AppSettings, ServiceType, DEFAULT_SERVICE_TYPES, RegionalHoliday } from './types';
 import { TECHNICIANS, INITIAL_CLIENTS, STATUS_STYLE } from './constants';
 import { ServiceGrid } from './components/ServiceGrid';
 import { ResourceTimeline } from './components/ResourceTimeline';
@@ -8,6 +8,7 @@ import { QuickAddModal } from './components/QuickAddModal';
 import { TechManagerModal } from './components/TechManagerModal';
 import { ClientManagerModal } from './components/ClientManagerModal';
 import { ServiceTypeManagerModal } from './components/ServiceTypeManagerModal';
+import { HolidayManagerModal } from './components/HolidayManagerModal';
 import { HelpModal } from './components/HelpModal';
 import { LoginPage } from './components/LoginPage';
 import { SettingsModal } from './components/SettingsModal';
@@ -93,7 +94,8 @@ import {
     Check,
     Undo2,
     Redo2,
-    Wrench
+    Wrench,
+    Calendar
 } from 'lucide-react';
 
 // Helper to sort technicians: Internal first, then Alphabetical by Name
@@ -111,12 +113,14 @@ const App: React.FC = () => {
     const [technicians, setTechnicians] = useState<Technician[]>(() => sortTechnicians(TECHNICIANS));
     const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS);
     const [serviceTypes, setServiceTypes] = useState<ServiceType[]>(DEFAULT_SERVICE_TYPES);
+    const [regionalHolidays, setRegionalHolidays] = useState<RegionalHoliday[]>([]);
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
     const [isTechModalOpen, setIsTechModalOpen] = useState(false);
     const [isClientModalOpen, setIsClientModalOpen] = useState(false);
     const [isServiceTypeModalOpen, setIsServiceTypeModalOpen] = useState(false);
+    const [isHolidayModalOpen, setIsHolidayModalOpen] = useState(false);
     const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
     const [isCalibrationAlertsModalOpen, setIsCalibrationAlertsModalOpen] = useState(false);
     const [isUnsavedExitModalOpen, setIsUnsavedExitModalOpen] = useState(false);
@@ -183,6 +187,7 @@ const App: React.FC = () => {
         technicians: Technician[];
         clients: Client[];
         serviceTypes: ServiceType[];
+        regionalHolidays: RegionalHoliday[];
     }
 
     const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
@@ -190,12 +195,12 @@ const App: React.FC = () => {
 
     const recordSnapshot = useCallback(() => {
         setUndoStack(prev => {
-            const next = [...prev, { services, technicians, clients, serviceTypes }];
+            const next = [...prev, { services, technicians, clients, serviceTypes, regionalHolidays }];
             if (next.length > 50) return next.slice(next.length - 50);
             return next;
         });
         setRedoStack([]);
-    }, [services, technicians, clients, serviceTypes]);
+    }, [services, technicians, clients, serviceTypes, regionalHolidays]);
 
     const handleUndo = useCallback(() => {
         setUndoStack(prevUndo => {
@@ -204,7 +209,7 @@ const App: React.FC = () => {
             const nextUndo = prevUndo.slice(0, prevUndo.length - 1);
 
             setRedoStack(prevRedo => {
-                const next = [...prevRedo, { services, technicians, clients, serviceTypes }];
+                const next = [...prevRedo, { services, technicians, clients, serviceTypes, regionalHolidays }];
                 if (next.length > 50) return next.slice(next.length - 50);
                 return next;
             });
@@ -213,11 +218,12 @@ const App: React.FC = () => {
             setTechnicians(lastSnapshot.technicians);
             setClients(lastSnapshot.clients);
             if (lastSnapshot.serviceTypes) setServiceTypes(lastSnapshot.serviceTypes);
+            if (lastSnapshot.regionalHolidays) setRegionalHolidays(lastSnapshot.regionalHolidays);
 
             showToast('Ação desfeita (Undo)');
             return nextUndo;
         });
-    }, [services, technicians, clients, serviceTypes, showToast]);
+    }, [services, technicians, clients, serviceTypes, regionalHolidays, showToast]);
 
     const handleRedo = useCallback(() => {
         setRedoStack(prevRedo => {
@@ -226,7 +232,7 @@ const App: React.FC = () => {
             const nextRedo = prevRedo.slice(0, prevRedo.length - 1);
 
             setUndoStack(prevUndo => {
-                const next = [...prevUndo, { services, technicians, clients, serviceTypes }];
+                const next = [...prevUndo, { services, technicians, clients, serviceTypes, regionalHolidays }];
                 if (next.length > 50) return next.slice(next.length - 50);
                 return next;
             });
@@ -235,11 +241,12 @@ const App: React.FC = () => {
             setTechnicians(nextSnapshot.technicians);
             setClients(nextSnapshot.clients);
             if (nextSnapshot.serviceTypes) setServiceTypes(nextSnapshot.serviceTypes);
+            if (nextSnapshot.regionalHolidays) setRegionalHolidays(nextSnapshot.regionalHolidays);
 
             showToast('Ação refeita (Redo)');
             return nextRedo;
         });
-    }, [services, technicians, clients, serviceTypes, showToast]);
+    }, [services, technicians, clients, serviceTypes, regionalHolidays, showToast]);
 
     const legendItems = Object.entries(STATUS_STYLE).map(([label, { bg }]) => ({ color: bg, label }));
 
@@ -301,13 +308,14 @@ const App: React.FC = () => {
                         if (data.clients.length > 0) setClients(data.clients);
                         if (data.services.length > 0) setServices(syncServicesLastCalibration(cleanObsoleteCalibrationForecasts(data.services)));
                         if (data.serviceTypes && data.serviceTypes.length > 0) setServiceTypes(data.serviceTypes);
+                        if (data.regionalHolidays && data.regionalHolidays.length > 0) setRegionalHolidays(data.regionalHolidays);
 
                         if (data.users.length > 0) {
                             setUsers(data.users);
                         } else {
                             const defaultAdmin = await createDefaultAdmin();
                             setUsers([defaultAdmin]);
-                            await saveToNetworkServer(data.services, data.technicians, data.clients, [defaultAdmin], data.serviceTypes || DEFAULT_SERVICE_TYPES);
+                            await saveToNetworkServer(data.services, data.technicians, data.clients, [defaultAdmin], data.serviceTypes || DEFAULT_SERVICE_TYPES, data.regionalHolidays || []);
                         }
 
                         setExcelFileName(data.fileName || 'Calendario_Digital_Base.xlsx');
@@ -320,7 +328,7 @@ const App: React.FC = () => {
                         // Se o arquivo ainda não existe na rede, cria a planilha inicial automaticamente
                         const defaultAdmin = await createDefaultAdmin();
                         setUsers([defaultAdmin]);
-                        await saveToNetworkServer([], sortTechnicians(TECHNICIANS), INITIAL_CLIENTS, [defaultAdmin], DEFAULT_SERVICE_TYPES);
+                        await saveToNetworkServer([], sortTechnicians(TECHNICIANS), INITIAL_CLIENTS, [defaultAdmin], DEFAULT_SERVICE_TYPES, []);
                         setExcelFileName('Calendario_Digital_Base.xlsx');
                         setIsExcelConnected(true);
                         setLoadCount(n => n + 1);
@@ -377,6 +385,9 @@ const App: React.FC = () => {
                 if (data.serviceTypes && data.serviceTypes.length > 0) {
                     setServiceTypes(data.serviceTypes);
                 }
+                if (data.regionalHolidays && data.regionalHolidays.length > 0) {
+                    setRegionalHolidays(data.regionalHolidays);
+                }
 
                 // Carregar usuários ou criar admin padrão
                 if (data.users.length > 0) {
@@ -421,7 +432,7 @@ const App: React.FC = () => {
                 setUsers([defaultAdmin]);
 
                 // Salvar dados atuais no novo arquivo
-                await saveAllToExcel(handle, services, technicians, clients, [defaultAdmin], serviceTypes);
+                await saveAllToExcel(handle, services, technicians, clients, [defaultAdmin], serviceTypes, regionalHolidays);
 
                 setExcelHandle(handle);
                 setExcelFileName(handle.name);
@@ -466,7 +477,7 @@ const App: React.FC = () => {
         setIsSaving(true);
         try {
             if (isNetworkServer) {
-                const ok = await saveToNetworkServer(services, technicians, clients, users, serviceTypes);
+                const ok = await saveToNetworkServer(services, technicians, clients, users, serviceTypes, regionalHolidays);
                 if (ok) {
                     markSaved();
                     showToast('Todas as alterações foram salvas na rede!');
@@ -474,7 +485,7 @@ const App: React.FC = () => {
                     showToast('Erro ao salvar no servidor de rede.');
                 }
             } else if (excelHandle) {
-                await saveAllToExcel(excelHandle, services, technicians, clients, users, serviceTypes);
+                await saveAllToExcel(excelHandle, services, technicians, clients, users, serviceTypes, regionalHolidays);
                 markSaved();
                 showToast('Todas as alterações foram salvas no arquivo Excel!');
             }
@@ -666,7 +677,8 @@ const App: React.FC = () => {
                 technicians,
                 services,
                 safeHorizon,
-                safePeriod
+                safePeriod,
+                regionalHolidays
             );
         }
 
@@ -677,7 +689,7 @@ const App: React.FC = () => {
             const isBecomingConfirmed = newServiceData.status === ServiceStatus.CONFIRMED && editingService.status !== ServiceStatus.CONFIRMED;
             if (isBecomingConfirmed) {
                 const tempSvc: Service = { ...editingService, ...newServiceData };
-                generatedCalService = generateNextCalibrationService(tempSvc, services);
+                generatedCalService = generateNextCalibrationService(tempSvc, services, regionalHolidays);
             }
 
             setServices(prev => {
@@ -896,7 +908,8 @@ const App: React.FC = () => {
                             technicians,
                             syncedList,
                             safeHorizon,
-                            safePeriod
+                            safePeriod,
+                            regionalHolidays
                         );
                     } else if (p === 0) {
                         periodChangedToZero = true;
@@ -921,7 +934,7 @@ const App: React.FC = () => {
             if (field === 'status' && value === ServiceStatus.CONFIRMED) {
                 const targetService = syncedList.find(s => s.id === id);
                 if (targetService) {
-                    newlyGenerated = generateNextCalibrationService(targetService, syncedList);
+                    newlyGenerated = generateNextCalibrationService(targetService, syncedList, regionalHolidays);
                     if (newlyGenerated) {
                         return syncServicesLastCalibration([...syncedList, newlyGenerated]);
                     }
@@ -1035,7 +1048,8 @@ const App: React.FC = () => {
             technicians,
             services,
             safeHorizon,
-            safePeriod
+            safePeriod,
+            regionalHolidays
         );
 
         if (forecasts.length === 0) {
@@ -1431,6 +1445,21 @@ const App: React.FC = () => {
         setServiceTypes(prev => prev.filter(st => st.id !== id));
     };
 
+    const handleAddRegionalHoliday = (holiday: RegionalHoliday) => {
+        recordSnapshot();
+        setRegionalHolidays(prev => [...prev, holiday]);
+    };
+
+    const handleUpdateRegionalHoliday = (id: string, updated: Partial<RegionalHoliday>) => {
+        recordSnapshot();
+        setRegionalHolidays(prev => prev.map(h => h.id === id ? { ...h, ...updated } : h));
+    };
+
+    const handleDeleteRegionalHoliday = (id: string) => {
+        recordSnapshot();
+        setRegionalHolidays(prev => prev.filter(h => h.id !== id));
+    };
+
     const handleExport = () => exportToExcel(services, technicians);
 
     // --- Auth Handlers ---
@@ -1455,9 +1484,9 @@ const App: React.FC = () => {
         try {
             let ok = false;
             if (isNetworkServer) {
-                ok = await saveToNetworkServer(services, technicians, clients, users, serviceTypes);
+                ok = await saveToNetworkServer(services, technicians, clients, users, serviceTypes, regionalHolidays);
             } else if (excelHandle) {
-                await saveAllToExcel(excelHandle, services, technicians, clients, users, serviceTypes);
+                await saveAllToExcel(excelHandle, services, technicians, clients, users, serviceTypes, regionalHolidays);
                 ok = true;
             } else {
                 showToast('Nenhum arquivo Excel conectado para salvar.');
@@ -1590,6 +1619,15 @@ const App: React.FC = () => {
                 onDelete={handleDeleteServiceType}
             />
 
+            <HolidayManagerModal
+                isOpen={isHolidayModalOpen}
+                onClose={() => setIsHolidayModalOpen(false)}
+                regionalHolidays={regionalHolidays}
+                onAdd={handleAddRegionalHoliday}
+                onUpdate={handleUpdateRegionalHoliday}
+                onDelete={handleDeleteRegionalHoliday}
+            />
+
             <HelpModal
                 isOpen={isHelpModalOpen}
                 onClose={() => setIsHelpModalOpen(false)}
@@ -1608,6 +1646,7 @@ const App: React.FC = () => {
                 onDeleteUser={handleDeleteUser}
                 onUpdateUser={handleUpdateUser}
                 onOpenServiceTypes={() => setIsServiceTypeModalOpen(true)}
+                onOpenHolidays={() => setIsHolidayModalOpen(true)}
             />
 
             <CalibrationAlertsModal
@@ -1844,6 +1883,9 @@ const App: React.FC = () => {
                                     <button onClick={() => setIsServiceTypeModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Gerenciar Serviços">
                                         <Wrench size={18} />
                                     </button>
+                                    <button onClick={() => setIsHolidayModalOpen(true)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg border border-transparent hover:border-slate-200 transition-all" title="Gerenciar Feriados">
+                                        <Calendar size={18} />
+                                    </button>
                                 </>
                             )}
 
@@ -2030,6 +2072,7 @@ const App: React.FC = () => {
                     <ResourceTimeline
                         services={filteredServices}
                         technicians={visibleTechnicians}
+                        regionalHolidays={regionalHolidays}
                         onServiceMove={handleServiceMove}
                         onServiceResize={handleServiceResize}
                         onServiceClick={handleServiceClick}

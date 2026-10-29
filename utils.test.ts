@@ -2,9 +2,9 @@
 // Roda sem framework: `npm test` (node:test + node:assert, type stripping nativo do Node 24).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod, calculateServiceForecast, applyBatchServiceUpdates, getBrazilianHoliday, isNonWorkingDay, generateNextCalibrationService, getPreviousServiceStartDate, syncServicesLastCalibration, isoToBrDate, brDateToIso, formatDateMask, isValidBrDate, getOverlapInterval, getDetailedConflicts, formatConflictsTooltipText, formatConflictsConfirmMessage, findConflictResolutionSuggestions } from './utils.ts';
+import { createRecurringCalibrationForecasts, checkPeriodExceeded, calculateCalibration, getCalibrationStatus, filterServicesByPeriod, calculateServiceForecast, applyBatchServiceUpdates, getBrazilianHoliday, isNonWorkingDay, generateNextCalibrationService, getPreviousServiceStartDate, syncServicesLastCalibration, isoToBrDate, brDateToIso, formatDateMask, isValidBrDate, getOverlapInterval, getDetailedConflicts, formatConflictsTooltipText, formatConflictsConfirmMessage, findConflictResolutionSuggestions, adjustToNextWorkingDay } from './utils.ts';
 import { ServiceStatus, TechType } from './types.ts';
-import type { Service, Technician } from './types.ts';
+import type { Service, Technician, RegionalHoliday } from './types.ts';
 
 const techs: Technician[] = [
   { id: 't1', name: 'ES', fullName: 'Eduardo Silva', type: TechType.INTERNAL, color: 'bg-red-100' },
@@ -1281,6 +1281,36 @@ test('sobreposição por serviços: visitas no mesmo cliente na mesma data com s
   });
   assert.equal(conflictsSameTechDiffService.length, 1);
   assert.equal(conflictsSameTechDiffService[0].type, 'TECHNICIAN', 'Mesmo técnico alocado simultaneamente deve gerar conflito de técnico');
+});
+
+test('feriados regionais e dias não úteis: feriados regionais têm status de não útil e empurram agendamentos para o próximo dia útil', () => {
+  const regionalHolidays: RegionalHoliday[] = [
+    { id: 'hol-1', name: 'Revolução Constitucionalista', day: 9, month: 7 }, // 09/07
+    { id: 'hol-2', name: 'Aniversário de São Paulo', day: 25, month: 1 } // 25/01
+  ];
+
+  // 1. Identificação do feriado regional anual
+  const d1 = new Date(2026, 6, 9); // 09/07/2026 (uma quinta-feira)
+  const holidayName = getBrazilianHoliday(d1, regionalHolidays);
+  assert.equal(holidayName, 'Revolução Constitucionalista');
+
+  const checkNonWorking = isNonWorkingDay(d1, regionalHolidays);
+  assert.equal(checkNonWorking.isNonWorking, true);
+  assert.equal(checkNonWorking.holidayName, 'Revolução Constitucionalista');
+  assert.equal(checkNonWorking.isWeekend, false);
+
+  // 2. adjustToNextWorkingDay: se uma data cai no feriado regional de quinta 09/07/2026, avança para sexta 10/07/2026
+  const nextWorkDay = adjustToNextWorkingDay(d1, regionalHolidays);
+  assert.equal(nextWorkDay.getDate(), 10);
+  assert.equal(nextWorkDay.getMonth(), 6);
+
+  // 3. Se uma data cai numa sexta-feira que é feriado (ex: 01/05/2026 Dia do Trabalho),
+  // o loop pula a sexta (feriado), sábado e domingo, pousando na segunda-feira 04/05/2026
+  const laborDay = new Date(2026, 4, 1); // 01/05/2026 = sexta-feira
+  const afterLaborDay = adjustToNextWorkingDay(laborDay, regionalHolidays);
+  assert.equal(afterLaborDay.getDate(), 4);
+  assert.equal(afterLaborDay.getMonth(), 4); // Maio
+  assert.equal(afterLaborDay.getDay(), 1); // Segunda-feira
 });
 
 

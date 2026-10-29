@@ -39,6 +39,13 @@ export interface ServiceType {
   name: string;
 }
 
+export interface RegionalHoliday {
+  id: string;
+  name: string;
+  day: number;   // 1 a 31
+  month: number; // 1 a 12
+}
+
 export const DEFAULT_SERVICE_TYPES: ServiceType[] = [
   { id: 'st-calib', name: 'Calibração' },
   { id: 'st-startup', name: 'Startup' },

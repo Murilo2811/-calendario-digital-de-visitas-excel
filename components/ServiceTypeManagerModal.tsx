@@ -281,3 +281,4 @@ export const ServiceTypeManagerModal: React.FC<ServiceTypeManagerModalProps> = (
     </Modal>
   );
 };
+
