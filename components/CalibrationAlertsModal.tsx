@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Modal } from './Modal';
-import { Service, Technician, Client } from '../types';
+import { Service, Technician, Client, RegionalHoliday } from '../types';
 import { getCalibrationStatus, CalibrationAlertLevel } from '../utils';
 import {
   X,
@@ -23,6 +23,7 @@ interface CalibrationAlertsModalProps {
   services: Service[];
   technicians: Technician[];
   clients: Client[];
+  regionalHolidays?: RegionalHoliday[];
   onSelectService: (service: Service) => void;
   onNavigateToDate: (date: Date) => void;
 }
@@ -33,6 +34,7 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
   services,
   technicians,
   clients,
+  regionalHolidays,
   onSelectService,
   onNavigateToDate,
 }) => {
@@ -43,14 +45,14 @@ export const CalibrationAlertsModal: React.FC<CalibrationAlertsModalProps> = ({
   const analyzedServices = useMemo(() => {
     return services
       .map(service => {
-        const calStatus = getCalibrationStatus(service, services);
+        const calStatus = getCalibrationStatus(service, services, regionalHolidays);
         return {
           service,
           calStatus
         };
       })
       .filter(item => item.calStatus.level !== 'NONE');
-  }, [services]);
+  }, [services, regionalHolidays]);
 
   // Counts
   const counts = useMemo(() => {

@@ -156,12 +156,12 @@ const App: React.FC = () => {
         let expired = 0;
         let expiringSoon = 0;
         services.forEach(s => {
-            const st = getCalibrationStatus(s, services);
+            const st = getCalibrationStatus(s, services, regionalHolidays);
             if (st.level === 'EXPIRED') expired++;
             else if (st.level === 'EXPIRING_SOON') expiringSoon++;
         });
         return { expired, expiringSoon, totalAlerts: expired + expiringSoon };
-    }, [services]);
+    }, [services, regionalHolidays]);
 
     const [excelHandle, setExcelHandle] = useState<FileSystemFileHandle | null>(null);
     const [isExcelConnected, setIsExcelConnected] = useState(false);
@@ -1655,6 +1655,7 @@ const App: React.FC = () => {
                 services={services}
                 technicians={technicians}
                 clients={clients}
+                regionalHolidays={regionalHolidays}
                 onSelectService={(service) => {
                     setEditingService(service);
                     setIsModalOpen(true);
@@ -2059,6 +2060,7 @@ const App: React.FC = () => {
                         services={filteredServices}
                         technicians={technicians}
                         clients={clients}
+                        regionalHolidays={regionalHolidays}
                         onUpdate={updateService}
                         onDelete={deleteService}
                         onBatchStatusUpdate={handleBatchStatusUpdate}

@@ -1313,5 +1313,60 @@ test('feriados regionais e dias não úteis: feriados regionais têm status de n
   assert.equal(afterLaborDay.getDay(), 1); // Segunda-feira
 });
 
+test('atividades com datas futuras nao devem nascer como vencidas (EXPIRED)', () => {
+  // Cenário 1: Visita futura agendada para 2027 com ajuste de fim de semana (ex: Tetra Pak - MM / ITAL)
+  // Última calibração: 18/09/2026 + 12 meses = 18/09/2027 (sábado). Próximo dia útil = 20/09/2027 (segunda-feira).
+  const visitaAnterior = base({
+    id: 'tp-1',
+    client: 'Tetra Pak - MM',
+    startDate: '2026-09-14',
+    endDate: '2026-09-18',
+    period: 12,
+    realized: 'sim'
+  });
+
+  const visitaFuturaSegunda = base({
+    id: 'tp-2',
+    client: 'Tetra Pak - MM',
+    startDate: '2027-09-20', // Segunda-feira após o sábado 18/09/2027
+    endDate: '2027-09-24',
+    period: 12,
+    realized: 'nao',
+    status: ServiceStatus.PREDICTED
+  });
+
+  const statusSegunda = getCalibrationStatus(visitaFuturaSegunda, [visitaAnterior, visitaFuturaSegunda]);
+  assert.notEqual(statusSegunda.level, 'EXPIRED', 'Visita futura em 2027 ajustada para dia útil não deve ser EXPIRED');
+  assert.equal(statusSegunda.level, 'OK', 'Visita ajustada para o próximo dia útil tolerado deve estar OK');
+  assert.equal(statusSegunda.isDelayed, undefined, 'Não deve constar como atrasada');
+
+  // Cenário 2: Visita futura agendada além do ciclo teórico (ex: Irani)
+  // Última calibração: 19/01/2026 + 12 meses = 20/01/2027. Agendamento em 26/01/2027.
+  const visitaIraniAnterior = base({
+    id: 'irani-1',
+    client: 'Irani',
+    startDate: '2026-01-15',
+    endDate: '2026-01-19',
+    period: 12,
+    realized: 'sim'
+  });
+
+  const visitaIraniFutura = base({
+    id: 'irani-2',
+    client: 'Irani',
+    startDate: '2027-01-26',
+    endDate: '2027-01-30',
+    period: 12,
+    realized: 'nao',
+    status: ServiceStatus.PREDICTED
+  });
+
+  const statusIrani = getCalibrationStatus(visitaIraniFutura, [visitaIraniAnterior, visitaIraniFutura]);
+  assert.notEqual(statusIrani.level, 'EXPIRED', 'Atividade futura cuja data limite não expirou hoje não deve ser EXPIRED');
+  assert.equal(statusIrani.level, 'OK', 'Visita futura com mais de 30 dias para a data limite deve constar como OK no presente');
+  assert.equal(statusIrani.isDelayed, true, 'Deve manter o registro de desvio em relação ao ciclo teórico');
+  assert.ok(statusIrani.delayReason?.includes('Agendada com desvio'), 'Deve exibir motivo informativo de desvio de agendamento');
+});
+
 
 

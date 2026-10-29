@@ -541,7 +541,8 @@ export interface CalibrationStatusInfo {
  */
 export const getCalibrationStatus = (
   service: Service,
-  allServices?: Service[]
+  allServices?: Service[],
+  regionalHolidays?: RegionalHoliday[]
 ): CalibrationStatusInfo => {
   const today = startOfDay(new Date());
 
@@ -556,7 +557,7 @@ export const getCalibrationStatus = (
   const isEndDateInFutureOrToday = endDateObj ? endDateObj >= today : false;
 
   // 1. Obter a atividade anterior no calendário para avaliar a janela de periodicidade
-  // Regra alinhada: Para ser considerada vencida, o início base deve começar depois do fim da última atividade + período + 1 dia.
+  // Regra alinhada: Para ser considerada vencida, o início base deve começar depois do fim da última atividade + período + 1 dia útil.
   // Se a atividade não apresentar uma atividade anterior no calendário, ela NÃO deve nascer como calibração vencida.
   let hasPreviousService = false;
   let prevLimitBaseDateStr: string | null = null;
@@ -583,27 +584,49 @@ export const getCalibrationStatus = (
   let limitDate: Date | null = null;
 
   if (hasPreviousService && service.period && service.period > 0 && prevLimitBaseDateStr && isValid(parseISO(prevLimitBaseDateStr)) && startDateObj) {
-    limitDate = startOfDay(addMonths(parseISO(prevLimitBaseDateStr), service.period));
+    const rawLimitDate = startOfDay(addMonths(parseISO(prevLimitBaseDateStr), service.period));
+    // Se a data limite cair em final de semana ou feriado, ajusta para o próximo dia útil tolerado
+    limitDate = adjustToNextWorkingDay(rawLimitDate, regionalHolidays);
     delayDays = differenceInDays(startDateObj, limitDate);
-    // Para ser considerada vencida, o início base deve começar depois do fim da última atividade + período + 1 dia (delayDays > 0)
+    // Para ser considerada vencida, o início base deve começar depois da data limite tolerada em dia útil
     isStartOverdue = delayDays > 0;
     limitDateText = format(limitDate, 'dd/MM/yyyy', { locale: ptBR });
   }
 
   // CASO 1: Atividade NÃO realizada (realized !== 'sim')
   if (service.realized !== 'sim') {
-    // 1.1 Se o início base começa após a data limite da calibração anterior -> CALIBRAÇÃO VENCIDA!
+    // 1.1 Se o início base começa após a data limite da calibração anterior:
     if (isStartOverdue && limitDate) {
+      // Se a data limite já passou de HOJE (hoje >= limitDate), a calibração está VENCIDA no presente!
+      if (today >= limitDate) {
+        const daysPast = differenceInDays(today, limitDate);
+        return {
+          level: 'EXPIRED',
+          daysRemaining: -daysPast,
+          targetDate: limitDate,
+          targetDateText: limitDateText,
+          isForecast: true,
+          isDelayed: true,
+          daysDelayed: delayDays,
+          limitDateText,
+          delayReason: `Calibração Vencida: prazo expirou em ${limitDateText} (há ${daysPast} dia(s))`
+        };
+      }
+
+      // Se a data limite é no FUTURO (limitDate > today):
+      // A calibração NÃO venceu no presente. A visita futura foi planejada para iniciar após o ciclo teórico.
+      const daysUntilLimit = differenceInDays(limitDate, today);
+      const isExpiringSoon = daysUntilLimit <= 30 && service.status !== ServiceStatus.CONFIRMED;
       return {
-        level: 'EXPIRED',
-        daysRemaining: -delayDays,
+        level: isExpiringSoon ? 'EXPIRING_SOON' : 'OK',
+        daysRemaining: daysUntilLimit,
         targetDate: limitDate,
         targetDateText: limitDateText,
         isForecast: true,
         isDelayed: true,
         daysDelayed: delayDays,
         limitDateText,
-        delayReason: `Calibração Vencida: início da visita ultrapassa o prazo limite em ${delayDays} dia(s) (Data limite: ${limitDateText})`
+        delayReason: `Agendada com desvio: início da visita ultrapassa o prazo limite em ${delayDays} dia(s) (Data limite: ${limitDateText})`
       };
     }
 
@@ -837,7 +860,8 @@ const NO_DEADLINE: PeriodExceededResult = { isExceeded: false, daysExceeded: 0, 
 export const checkPeriodExceeded = (
   service: Service,
   proposedStartDate: string,
-  allServices?: Service[]
+  allServices?: Service[],
+  regionalHolidays?: RegionalHoliday[]
 ): PeriodExceededResult => {
   const period = service.period;
   if (!period || period <= 0) return NO_DEADLINE;
@@ -857,7 +881,8 @@ export const checkPeriodExceeded = (
     const baseDate = parseISO(baseDateStr);
     if (!isValid(baseDate)) return NO_DEADLINE;
 
-    const limitDate = addMonths(baseDate, period);
+    const rawLimitDate = startOfDay(addMonths(baseDate, period));
+    const limitDate = adjustToNextWorkingDay(rawLimitDate, regionalHolidays);
     const daysDiff = differenceInDays(proposedStart, limitDate);
 
     return {
@@ -877,7 +902,8 @@ export const checkPeriodExceeded = (
   const baseDate = parseISO(baseDateStr);
   if (!isValid(baseDate)) return NO_DEADLINE;
 
-  const limitDate = addMonths(baseDate, period);
+  const rawLimitDate = startOfDay(addMonths(baseDate, period));
+  const limitDate = regionalHolidays ? adjustToNextWorkingDay(rawLimitDate, regionalHolidays) : rawLimitDate;
   const daysDiff = differenceInDays(proposedStart, limitDate);
 
   return {

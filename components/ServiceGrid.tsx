@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Service, ServiceStatus, Technician, Client } from '../types';
+import { Service, ServiceStatus, Technician, Client, RegionalHoliday } from '../types';
 import { calculateCalibration, calculateServiceForecast, getCalibrationStatus, getDetailedConflicts, formatConflictsTooltipText, checkPeriodExceeded, getPreviousServiceStartDate, isoToBrDate } from '../utils';
 import { STATUS_STYLE } from '../constants';
 import { Trash2, AlertCircle, Check, ChevronDown, MessageSquare, X, ArrowUp, ArrowDown, ListFilter, Filter, Repeat, Pencil } from 'lucide-react';
@@ -14,6 +14,7 @@ interface ServiceGridProps {
     services: Service[];
     technicians: Technician[];
     clients: Client[];
+    regionalHolidays?: RegionalHoliday[];
     onUpdate: (id: string, field: keyof Service, value: any) => void;
     onDelete: (id: string) => void;
     onBatchStatusUpdate?: (ids: string[], newStatus: ServiceStatus) => void;
@@ -421,6 +422,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
     services,
     technicians,
     clients,
+    regionalHolidays,
     onUpdate,
     onDelete,
     onBatchStatusUpdate,
@@ -637,7 +639,7 @@ export const ServiceGrid: React.FC<ServiceGridProps> = ({
             const detailedConflicts = getDetailedConflicts(services, technicians, service);
             const hasOverlap = detailedConflicts.length > 0;
             const overlapTooltip = formatConflictsTooltipText(detailedConflicts);
-            const calStatus = getCalibrationStatus(service, services);
+            const calStatus = getCalibrationStatus(service, services, regionalHolidays);
             // Badge de vencimento aparece quando há calibração prevista ou realizada fora do prazo
             const showCalBadge = (calStatus.isForecast || calStatus.level === 'OVERDUE_REALIZED') && !!(service.nextCalibration || (service.period && service.period > 0));
 
