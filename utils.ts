@@ -712,11 +712,11 @@ export const createRecurringCalibrationForecasts = (
 
   let currentRefStart = baseStart;
 
-  // Previsões automáticas futuras do cliente serão substituídas; só as demais visitas contam como já existentes
+  // Previsões futuras do cliente serão substituídas; só visitas reais confirmadas/realizadas contam como já existentes
   const clientNorm = normClient(baseService.client);
   const isRealVisit = (s: Service) =>
     s.id !== baseService.id && normClient(s.client) === clientNorm && !!s.startDate &&
-    !(s.status === ServiceStatus.PREDICTED && isAutoForecast(s) && s.startDate > baseService.startDate);
+    !(s.status === ServiceStatus.PREDICTED && s.startDate > baseService.startDate);
 
   for (let months = period; months <= maxMonths; months += period) {
     // Projeta o início somando o período e joga para segunda-feira se cair no fim de semana
@@ -751,7 +751,7 @@ export const createRecurringCalibrationForecasts = (
       client: baseService.client,
       manager: baseService.manager || '',
       os: '', // Em branco para preenchimento futuro
-      description: `Calibração Prevista (+${months}m - Ciclo ${cycle}) - Ref. OS ${baseService.os || 'Base'}`,
+      description: baseService.description || '',
       hp: baseService.hp || 0,
       ht: baseService.ht || 0,
       hv: baseService.hv || 0,

@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Calendar, Repeat, ArrowRight, Clock, Users, Sparkles, AlertCircle, Save } from 'lucide-react';
+import { X, Calendar, Repeat, ArrowRight, Clock, Users, Sparkles, AlertCircle, Save, AlertTriangle } from 'lucide-react';
 import { format } from 'date-fns/format';
 import { parseISO } from 'date-fns/parseISO';
 import { isValid } from 'date-fns/isValid';
 import { ptBR } from 'date-fns/locale/pt-BR';
-import type { Service, Technician } from '../types';
-import { createRecurringCalibrationForecasts } from '../utils';
+import { ServiceStatus, type Service, type Technician } from '../types';
+import { createRecurringCalibrationForecasts, normClient, isoToBrDate } from '../utils';
 
 interface RecurrenceModalProps {
     isOpen: boolean;
@@ -72,6 +72,18 @@ export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
             period
         );
     }, [service, technicians, existingServices, horizonMonths, period]);
+
+    // Recorrências automáticas futuras já cadastradas para o mesmo cliente a partir desta data
+    const existingFutureForecasts = useMemo(() => {
+        if (!service || !service.startDate || !service.client) return [];
+        const clientNorm = normClient(service.client);
+        return existingServices.filter(s =>
+            s.id !== service.id &&
+            normClient(s.client) === clientNorm &&
+            s.status === ServiceStatus.PREDICTED &&
+            s.startDate > service.startDate
+        ).sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+    }, [service, existingServices]);
 
     if (!isOpen || !service) return null;
 
@@ -233,6 +245,42 @@ export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
                         </div>
                     </div>
 
+                    {/* Alerta de Recorrências Já Cadastradas que serão Sobrescritas */}
+                    {existingFutureForecasts.length > 0 && (
+                        <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl space-y-2.5 shadow-2xs animate-in fade-in duration-200">
+                            <div className="flex items-start gap-2.5">
+                                <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                                <div className="flex-1 text-xs space-y-1.5">
+                                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                                        <span className="font-bold text-amber-900 text-xs">
+                                            Recorrências já cadastradas para este cliente ({existingFutureForecasts.length})
+                                        </span>
+                                        <span className="text-[10px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full border border-amber-300">
+                                            Serão Sobrescritas
+                                        </span>
+                                    </div>
+                                    <p className="text-amber-800 text-[11px] leading-relaxed">
+                                        Ao confirmar, as seguintes visitas previstas já existentes no calendário serão <strong>substituídas</strong> pelas novas datas calculadas:
+                                    </p>
+                                    <div className="pt-1 flex flex-wrap gap-1.5">
+                                        {existingFutureForecasts.map((ef, idx) => (
+                                            <span
+                                                key={ef.id || idx}
+                                                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white text-amber-950 font-semibold rounded-lg border border-amber-200 shadow-2xs text-[11px]"
+                                            >
+                                                <Calendar size={12} className="text-amber-600 shrink-0" />
+                                                <span>{isoToBrDate(ef.startDate)} até {isoToBrDate(ef.endDate)}</span>
+                                                <span className="text-amber-600 text-[10px] font-normal">
+                                                    (Semana {ef.week})
+                                                </span>
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Área de Prévia Dinâmica */}
                     <div className="space-y-3">
                         <div className="flex items-center justify-between">
@@ -333,12 +381,18 @@ export const RecurrenceModal: React.FC<RecurrenceModalProps> = ({
                             disabled={previewForecasts.length === 0}
                             className={`px-5 py-2 text-xs font-bold rounded-xl flex items-center gap-2 shadow-sm transition-all cursor-pointer ${
                                 previewForecasts.length > 0
-                                    ? 'bg-abb-red text-white hover:bg-red-700 active:scale-98'
+                                    ? existingFutureForecasts.length > 0
+                                        ? 'bg-amber-600 text-white hover:bg-amber-700 active:scale-98'
+                                        : 'bg-abb-red text-white hover:bg-red-700 active:scale-98'
                                     : 'bg-slate-200 text-slate-400 cursor-not-allowed'
                             }`}
                         >
                             <Repeat size={14} />
-                            Gerar {previewForecasts.length} {previewForecasts.length === 1 ? 'Visita Futura' : 'Visitas Futuras'}
+                            {existingFutureForecasts.length > 0 ? (
+                                <span>Sobrescrever e Gerar {previewForecasts.length} {previewForecasts.length === 1 ? 'Visita' : 'Visitas'}</span>
+                            ) : (
+                                <span>Gerar {previewForecasts.length} {previewForecasts.length === 1 ? 'Visita Futura' : 'Visitas Futuras'}</span>
+                            )}
                         </button>
                     </div>
                 </div>

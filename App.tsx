@@ -764,9 +764,38 @@ const App: React.FC = () => {
             }
         }
 
+        // Se o usuário estiver alterando o Período diretamente pelo Grid
+        if (field === 'period') {
+            const current = services.find(s => s.id === id);
+            if (!current) return;
+            const newPeriod = Number(value) || 0;
+
+            // Se o período está sendo zerado e havia previsões futuras para este cliente
+            if (newPeriod === 0 && current.period && current.period > 0) {
+                const clientNorm = normClient(current.client);
+                const futureForecasts = services.filter(s =>
+                    normClient(s.client) === clientNorm &&
+                    s.status === ServiceStatus.PREDICTED &&
+                    s.id !== current.id &&
+                    s.startDate > current.startDate
+                );
+
+                if (futureForecasts.length > 0) {
+                    const confirmed = window.confirm(
+                        `Esta atividade possui ${futureForecasts.length} visita(s) de recorrência futura(s) gerada(s).\nAo zerar o período, essas previsões serão removidas.\n\nDeseja continuar?`
+                    );
+                    if (!confirmed) {
+                        return; // Cancela alteração
+                    }
+                }
+            }
+        }
+
         recordSnapshot();
 
         let newlyGenerated: Service | null = null;
+        let recurrenceForecastsGenerated: Service[] = [];
+        let periodChangedToZero = false;
 
         setServices(prev => {
             const nextList = prev.map(s => {
@@ -822,10 +851,60 @@ const App: React.FC = () => {
                     updatedService.nextCalibration = (value && value !== '0') ? value : '';
                 }
 
+                // Se alterar o período no Grid, recalcula a próxima calibração
+                if (field === 'period') {
+                    const p = Number(value) || 0;
+                    updatedService.period = p;
+                    const { isoDate } = calculateCalibration(
+                        updatedService.startDate,
+                        updatedService.lastCalibration,
+                        p,
+                        undefined,
+                        updatedService.realized
+                    );
+                    updatedService.nextCalibration = isoDate || '';
+                }
+
                 return updatedService;
             });
 
             let syncedList = syncServicesLastCalibration(nextList);
+
+            // Se o período foi alterado pelo Grid, gera as novas previsões recorrentes ou remove se zerado
+            if (field === 'period') {
+                const p = Number(value) || 0;
+                const targetService = syncedList.find(s => s.id === id);
+                if (targetService) {
+                    const clientNorm = normClient(targetService.client);
+
+                    if (p > 0 && targetService.startDate) {
+                        const safePeriod = Math.min(p, 12);
+                        const safeHorizon = safePeriod > 6 ? 12 : 6;
+                        recurrenceForecastsGenerated = createRecurringCalibrationForecasts(
+                            targetService,
+                            technicians,
+                            syncedList,
+                            safeHorizon,
+                            safePeriod
+                        );
+                    } else if (p === 0) {
+                        periodChangedToZero = true;
+                    }
+
+                    // Remove previsões futuras pendentes do mesmo cliente após esta visita base
+                    const filtered = syncedList.filter(s => {
+                        if (s.id === targetService.id) return true;
+                        if (normClient(s.client) === clientNorm &&
+                            s.status === ServiceStatus.PREDICTED &&
+                            s.startDate > targetService.startDate) {
+                            return false;
+                        }
+                        return true;
+                    });
+
+                    syncedList = syncServicesLastCalibration([...filtered, ...recurrenceForecastsGenerated].sort((a, b) => (a.startDate || '').localeCompare(b.startDate || '')));
+                }
+            }
 
             // Se alterou o status para "Cliente Confirmado", gera a nova atividade futura se houver próxima calibração
             if (field === 'status' && value === ServiceStatus.CONFIRMED) {
@@ -846,6 +925,11 @@ const App: React.FC = () => {
                 ? format(parseISO((newlyGenerated as Service).startDate), 'dd/MM/yyyy')
                 : (newlyGenerated as Service).startDate;
             showToast(`Status confirmado! Nova atividade gerada para ${targetDate} (Cliente Previsto).`);
+        } else if (recurrenceForecastsGenerated.length > 0) {
+            const datesFormatted = recurrenceForecastsGenerated.map(f => isoToBrDate(f.startDate)).join(', ');
+            showToast(`${recurrenceForecastsGenerated.length} visita(s) futura(s) gerada(s) para ${datesFormatted}. Alterne o mês ou selecione "Ano Todo" para visualizá-las.`);
+        } else if (periodChangedToZero) {
+            showToast('Periodicidade zerada e previsões futuras de calibração removidas.');
         }
     };
 
@@ -919,8 +1003,24 @@ const App: React.FC = () => {
         const safePeriod = Math.min(customPeriod, 12);
         const safeHorizon = safePeriod > 6 ? 12 : Math.min(horizonMonths, 12);
 
+        // Atualiza a própria visita base com o novo período e recalcula a próxima calibração
+        const updatedBaseService: Service = {
+            ...baseService,
+            period: safePeriod,
+        };
+        const { isoDate } = calculateCalibration(
+            updatedBaseService.startDate,
+            updatedBaseService.lastCalibration,
+            safePeriod,
+            undefined,
+            updatedBaseService.realized
+        );
+        if (isoDate) {
+            updatedBaseService.nextCalibration = isoDate;
+        }
+
         const forecasts = createRecurringCalibrationForecasts(
-            baseService,
+            updatedBaseService,
             technicians,
             services,
             safeHorizon,
@@ -934,11 +1034,13 @@ const App: React.FC = () => {
 
         const clientNorm = normClient(baseService.client);
 
-        // Substitui previsões automáticas futuras anteriores desse cliente a partir da data base
+        // Atualiza o baseService e substitui previsões automáticas futuras anteriores desse cliente a partir da data base
         setServices(prev => {
-            const filtered = prev.filter(s => {
+            const updatedPrev = prev.map(s => s.id === baseService.id ? updatedBaseService : s);
+            const filtered = updatedPrev.filter(s => {
+                if (s.id === baseService.id) return true;
                 const sClientNorm = normClient(s.client);
-                if (sClientNorm === clientNorm && s.status === ServiceStatus.PREDICTED && isAutoForecast(s) && s.startDate > baseService.startDate) {
+                if (sClientNorm === clientNorm && s.status === ServiceStatus.PREDICTED && s.startDate > baseService.startDate) {
                     return false;
                 }
                 return true;
@@ -947,7 +1049,8 @@ const App: React.FC = () => {
             return syncServicesLastCalibration([...filtered, ...forecasts].sort((a, b) => (a.startDate || '').localeCompare(b.startDate || '')));
         });
 
-        showToast(`${forecasts.length} visita(s) futura(s) de calibração gerada(s) a cada ${safePeriod}m até ${safeHorizon}m!`);
+        const datesFormatted = forecasts.map(f => isoToBrDate(f.startDate)).join(', ');
+        showToast(`${forecasts.length} visita(s) gerada(s) para ${datesFormatted}. Alterne o mês ou selecione "Ano Todo" para visualizá-las.`);
     };
 
     const handleSaveRecurrenceOnly = (baseService: Service, customPeriod: number) => {

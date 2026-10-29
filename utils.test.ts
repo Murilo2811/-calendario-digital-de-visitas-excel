@@ -73,6 +73,17 @@ test('preserva e herda os comentarios da visita base em cada projecao', () => {
   assert.ok(forecasts.every(f => f.comments === 'Levar kit de calibração padrão e EPI para alta tensão'));
 });
 
+test('preserva e herda a descricao da visita base em cada projecao de recorrencia', () => {
+  const descricaoOriginal = 'Manutenção preventiva periódica dos analisadores e transmissores de vazão';
+  const forecasts = createRecurringCalibrationForecasts(
+    base({ description: descricaoOriginal }),
+    techs,
+    []
+  );
+  assert.ok(forecasts.length > 0);
+  assert.ok(forecasts.every(f => f.description === descricaoOriginal));
+});
+
 test('checkPeriodExceeded: dentro do prazo', () => {
   // ultima calibracao 2026-01-10 + 6 meses = limite 2026-07-10
   const r = checkPeriodExceeded(base({ lastCalibration: '2026-01-10' }), '2026-07-01');
